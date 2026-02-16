@@ -86,12 +86,13 @@ pub fn verify_offline_snp_ffi(
     ark_pem: &[u8],
     ask_pem: &[u8],
     vcek_pem: &[u8],
-) -> Result<AttestationReport, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let attestation_report = AttestationReport::read_from_bytes(attestation_bytes).unwrap();
 
     let ark = Crypto::from_pem(ark_pem).unwrap();
     let ask = Crypto::from_pem(ask_pem).unwrap();
     let vcek = Crypto::from_pem(vcek_pem).unwrap();
 
-    verify::verify_attestation(attestation_report, ark, ask, vcek).map_err(|e| e.into())
+    verify::verify_attestation(&attestation_report, &ark, &ask, &vcek).map_err(|e| e.into())?;
+    Ok(())
 }

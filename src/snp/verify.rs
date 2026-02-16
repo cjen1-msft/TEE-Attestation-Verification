@@ -26,12 +26,14 @@ impl std::fmt::Display for SevVerificationError {
 
 impl std::error::Error for SevVerificationError {}
 
+// Verifies the attestation report using the provided ARK, ASK, and VCEK certificates.
+// If verification is successful, returns Ok(()). Otherwise, returns a SevVerificationError with details of the step which failed.
 pub fn verify_attestation(
-    attestation_report: AttestationReport,
-    ark: Certificate,
-    ask: Certificate,
-    vcek: Certificate,
-) -> Result<AttestationReport, SevVerificationError> {
+    attestation_report: &AttestationReport,
+    ark: &Certificate,
+    ask: &Certificate,
+    vcek: &Certificate,
+) -> Result<(), SevVerificationError> {
     let generation = snp::model::Generation::from_family_and_model(
         attestation_report.cpuid_fam_id,
         attestation_report.cpuid_mod_id,
@@ -39,22 +41,22 @@ pub fn verify_attestation(
     .map_err(|e| SevVerificationError::UnsupportedProcessor(format!("{:?}", e)))?;
 
     // Verify that the root cert matches a pinned ARK
-    ark_matches_pinned(generation, &ark)
+    ark_matches_pinned(generation, ark)
         .map_err(|e| SevVerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
 
     // Verify the certificate chain: ARK -> ASK -> VCEK
-    Crypto::verify_chain(&[ark], &[ask], &vcek)
+    Crypto::verify_chain(&[ark.clone()], &[ask.clone()], vcek)
         .map_err(|e| SevVerificationError::CertificateChainError(format!("{:?}", e)))?;
 
     // Verify the attestation report signature using the VCEK
-    vcek.verify(&attestation_report)
+    vcek.verify(attestation_report)
         .map_err(|e| SevVerificationError::SignatureVerificationError(format!("{:?}", e)))?;
 
     // Verify that the TCB values in the VCEK match those reported in the attestation report
-    verify_tcb_values(&vcek, &attestation_report)
+    verify_tcb_values(vcek, attestation_report)
         .map_err(|e| SevVerificationError::TcbVerificationError(format!("{:?}", e)))?;
 
-    Ok(attestation_report)
+    Ok(())
 }
 
 pub(crate) fn ark_matches_pinned(

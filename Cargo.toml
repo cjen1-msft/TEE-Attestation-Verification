@@ -19,7 +19,7 @@ path = "src/bin/verify_cli.rs"
 required-features = ["online"]
 
 [features]
-default = ["crypto_pure_rust", "serde"]
+default = ["crypto_pure_rust", "serde", "online"]
 # If both enabled, defaults to crypto_pure_rust but expose the crypto_openssl module
 crypto_openssl = ["dep:openssl"]
 crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa"]

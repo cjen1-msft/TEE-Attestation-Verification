@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use super::utils::Oid;
 use crate::crypto::{Certificate, Crypto, CryptoBackend, Verifier};
 use crate::{snp, AttestationReport};

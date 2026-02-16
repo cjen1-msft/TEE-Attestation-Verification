@@ -1,9 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(not(feature = "online"))]
+compile_error!("certificate_chain module requires feature=online");
+
 use crate::crypto::{Certificate, Verifier};
 use crate::kds::KdsFetcher;
-use crate::pinned_arks;
+use crate::snp::root_certs;
 use crate::{snp, AttestationReport};
 use log::info;
 use std::collections::HashMap;
@@ -73,7 +76,7 @@ impl AmdCertificates {
         )?;
 
         // Get pinned ARK for this processor generation
-        let ark = pinned_arks::get_ark(processor_model)?;
+        let ark = root_certs::get_ark(&processor_model);
 
         // Verify chain: ARK signs ASK
         ark.verify(&ask)

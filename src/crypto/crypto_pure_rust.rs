@@ -81,24 +81,31 @@ impl CryptoBackend for Crypto {
     }
 
     fn verify_chain(
-        trusted_certs: Vec<Certificate>,
-        untrusted_chain: Vec<Certificate>,
-        leaf: Certificate,
+        trusted_certs: &[&Certificate],
+        untrusted_chain: &[&Certificate],
+        leaf: &Certificate,
     ) -> Result<()> {
         let untrusted_chain = untrusted_chain.iter().chain(std::iter::once(&leaf));
         let mut prev: Option<&x509_cert::certificate::CertificateInner> = None;
         for cert in untrusted_chain {
             if let Some(issuer) = prev {
-                issuer.verify(cert)?;
+                issuer.verify(*cert)?;
             } else {
                 trusted_certs
                     .iter()
-                    .find(|trusted| trusted.verify(cert).is_ok())
+                    .find(|trusted| trusted.verify(*cert).is_ok())
                     .ok_or("Failed to verify certificate: no matching trusted issuer")?;
             }
             prev = Some(cert);
         }
         Ok(())
+    }
+
+    fn get_public_key(cert: &Self::Certificate) -> Result<Vec<u8>> {
+        cert.tbs_certificate
+            .subject_public_key_info
+            .to_der()
+            .map_err(|e| format!("Failed to encode SubjectPublicKeyInfo: {:?}", e).into())
     }
 }
 

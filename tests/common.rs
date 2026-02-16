@@ -2,24 +2,29 @@
 // Licensed under the MIT License.
 
 use tee_attestation_verification_lib::crypto::{Crypto, CryptoBackend};
+use tee_attestation_verification_lib::snp::verify;
 use tee_attestation_verification_lib::{AttestationReport, SevVerificationResult, SevVerifier};
 use zerocopy::FromBytes;
 
 // Attestation reports
-const MILAN_ATTESTATION: &[u8] = include_bytes!("test_data/milan_attestation_report.bin");
-const GENOA_ATTESTATION: &[u8] = include_bytes!("test_data/genoa_attestation_report.bin");
-const TURIN_ATTESTATION: &[u8] = include_bytes!("test_data/turin_attestation_report.bin");
+pub(crate) const MILAN_ATTESTATION: &[u8] =
+    include_bytes!("test_data/milan_attestation_report.bin");
+pub(crate) const GENOA_ATTESTATION: &[u8] =
+    include_bytes!("test_data/genoa_attestation_report.bin");
+pub(crate) const TURIN_ATTESTATION: &[u8] =
+    include_bytes!("test_data/turin_attestation_report.bin");
 
 // ASK certificates
-const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
-const GENOA_ASK: &[u8] = include_bytes!("test_data/genoa_ask.pem");
-const TURIN_ASK: &[u8] = include_bytes!("test_data/turin_ask.pem");
+pub(crate) const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
+pub(crate) const GENOA_ASK: &[u8] = include_bytes!("test_data/genoa_ask.pem");
+pub(crate) const TURIN_ASK: &[u8] = include_bytes!("test_data/turin_ask.pem");
 
 // VCEK certificates
-const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
-const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
-const TURIN_VCEK: &[u8] = include_bytes!("test_data/turin_vcek.pem");
+pub(crate) const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
+pub(crate) const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
+pub(crate) const TURIN_VCEK: &[u8] = include_bytes!("test_data/turin_vcek.pem");
 
+#[cfg(feature = "online")]
 pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<SevVerificationResult, String> {
     let attestation_report = AttestationReport::read_from_bytes(bytes)
         .map_err(|e| format!("Failed to parse attestation report from bytes: {:?}", e))?;
@@ -34,14 +39,17 @@ pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<SevVerificationRes
         .map_err(|e| format!("Verification call failed: {e}"))
 }
 
+#[cfg(feature = "online")]
 pub async fn verify_milan_attestation() -> Result<SevVerificationResult, String> {
     verify_attestation_bytes(MILAN_ATTESTATION).await
 }
 
+#[cfg(feature = "online")]
 pub async fn verify_genoa_attestation() -> Result<SevVerificationResult, String> {
     verify_attestation_bytes(GENOA_ATTESTATION).await
 }
 
+#[cfg(feature = "online")]
 pub async fn verify_turin_attestation() -> Result<SevVerificationResult, String> {
     verify_attestation_bytes(TURIN_ATTESTATION).await
 }
@@ -75,4 +83,21 @@ pub fn verify_genoa_attestation_offline() -> Result<SevVerificationResult, Strin
 
 pub fn verify_turin_attestation_offline() -> Result<SevVerificationResult, String> {
     verify_offline(TURIN_ATTESTATION, TURIN_ASK, TURIN_VCEK)
+}
+
+pub fn verify_offline_snp_ffi(
+    attestation_bytes: &[u8],
+    ark_pem: &[u8],
+    ask_pem: &[u8],
+    vcek_pem: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let attestation_report = AttestationReport::read_from_bytes(attestation_bytes).unwrap();
+
+    let ark = Crypto::from_pem(ark_pem).unwrap();
+    let ask = Crypto::from_pem(ask_pem).unwrap();
+    let vcek = Crypto::from_pem(vcek_pem).unwrap();
+
+    verify::verify_attestation(&attestation_report, &vcek, Some(&ask), Some(&ark))
+        .map_err(|e| e.into())?;
+    Ok(())
 }

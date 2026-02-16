@@ -13,6 +13,7 @@ pub mod snp;
 
 mod certificate_chain;
 mod kds;
+mod ffi;
 
 pub use crypto::Certificate;
 pub use snp::report::AttestationReport;

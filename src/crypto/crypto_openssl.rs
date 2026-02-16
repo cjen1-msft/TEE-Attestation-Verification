@@ -52,6 +52,12 @@ impl CryptoBackend for Crypto {
             Err(e) => Err(Box::new(e)),
         }
     }
+
+    fn get_public_key(cert: &Self::Certificate) -> Result<Vec<u8>> {
+        let pkey = cert.public_key()?;
+        pkey.public_key_to_der()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    }
 }
 
 impl Verifier<Certificate> for Certificate {

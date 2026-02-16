@@ -43,6 +43,9 @@ pub trait CryptoBackend {
         untrusted_chain: &[Self::Certificate],
         leaf: &Self::Certificate,
     ) -> Result<()>;
+
+    /// Extract the SubjectPublicKeyInfo (DER-encoded) from a certificate.
+    fn get_public_key(cert: &Self::Certificate) -> Result<Vec<u8>>;
 }
 
 #[cfg(feature = "crypto_openssl")]

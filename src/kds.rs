@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(not(feature = "online"))]
+compile_error!("kds module requires feature=online");
+
 use crate::crypto::{Certificate, Crypto, CryptoBackend};
 use crate::snp;
 use crate::{certificate_chain::CertificateFetcher, AttestationReport};

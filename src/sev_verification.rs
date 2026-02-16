@@ -5,6 +5,7 @@
 //!
 //! This implementation is designed to be compiled only for wasm32 and uses
 //! wasm-bindgen for fetching KDS artifacts via an extension-provided JS bridge.
+#[cfg(feature = "online")]
 use crate::certificate_chain::AmdCertificates;
 use crate::crypto::Certificate;
 use crate::snp::verify::verify_tcb_values;
@@ -44,10 +45,12 @@ pub struct SevVerificationDetails {
 
 /// WASM SEV verifier (only compiled for wasm32)
 pub struct SevVerifier {
+    #[cfg(feature = "online")]
     amd_certificates: AmdCertificates,
 }
 
 impl SevVerifier {
+    #[cfg(feature = "online")]
     pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(target_arch = "wasm32")]
         Self::init_wasm_logging();
@@ -78,6 +81,7 @@ impl SevVerifier {
         }
     }
 
+    #[cfg(feature = "online")]
     pub async fn verify_attestation(
         &mut self,
         attestation_report: &AttestationReport,

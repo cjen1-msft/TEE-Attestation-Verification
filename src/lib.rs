@@ -11,14 +11,17 @@ pub mod crypto;
 pub mod sev_verification;
 pub mod snp;
 
+#[cfg(feature = "online")]
 mod certificate_chain;
-mod kds;
 mod ffi;
+#[cfg(feature = "online")]
+mod kds;
 
 pub use crypto::Certificate;
 pub use snp::report::AttestationReport;
 
-// Re-export the main types at crate root for convenient use (wasm only)
+// Re-export the main types at crate root for convenient use
+#[cfg(feature = "online")]
 pub use certificate_chain::AmdCertificates;
 pub use sev_verification::{SevVerificationDetails, SevVerificationResult, SevVerifier};
 
@@ -34,7 +37,7 @@ pub fn init() {
 }
 
 /// JavaScript-facing verification function
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "online"))]
 #[wasm_bindgen]
 pub async fn verify_attestation_report(attestation_report_json: &str) -> Result<String, String> {
     let attestation_report: AttestationReport = serde_json::from_str(attestation_report_json)

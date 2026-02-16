@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "verify-attestation"
 path = "src/bin/verify_cli.rs"
+required-features = ["online"]
 
 [features]
 default = ["crypto_pure_rust", "serde"]
@@ -23,6 +24,8 @@ default = ["crypto_pure_rust", "serde"]
 crypto_openssl = ["dep:openssl"]
 crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa"]
 serde = ["dep:serde", "dep:serde-big-array", "dep:serde_json"]
+# Enable online certificate fetching from AMD KDS (curl on native, js fetch on wasm).
+online = ["dep:curl", "dep:tokio"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
@@ -37,6 +40,7 @@ sha2 = "0.10"
 base64 = "0.13"
 bitfield = "0.14"
 pem = "3.0.6"
+log = "0.4"
 zerocopy = {version = "0.8.31", features = ["derive"]}
 
 # Crypto
@@ -57,10 +61,9 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 getrandom = { version = "0.2", features = ["js"] }
 wasm-logger = "0.2"
-log = "0.4"
 console_error_panic_hook = "0.1"
 
-# Native CLI deps
+# Native deps (optional, enabled by 'online' feature)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-curl = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+curl = { version = "0.4", optional = true }

@@ -24,6 +24,7 @@ pub(crate) const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
 pub(crate) const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
 pub(crate) const TURIN_VCEK: &[u8] = include_bytes!("test_data/turin_vcek.pem");
 
+#[cfg(feature = "online")]
 pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<SevVerificationResult, String> {
     let attestation_report = AttestationReport::read_from_bytes(bytes)
         .map_err(|e| format!("Failed to parse attestation report from bytes: {:?}", e))?;
@@ -38,14 +39,17 @@ pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<SevVerificationRes
         .map_err(|e| format!("Verification call failed: {e}"))
 }
 
+#[cfg(feature = "online")]
 pub async fn verify_milan_attestation() -> Result<SevVerificationResult, String> {
     verify_attestation_bytes(MILAN_ATTESTATION).await
 }
 
+#[cfg(feature = "online")]
 pub async fn verify_genoa_attestation() -> Result<SevVerificationResult, String> {
     verify_attestation_bytes(GENOA_ATTESTATION).await
 }
 
+#[cfg(feature = "online")]
 pub async fn verify_turin_attestation() -> Result<SevVerificationResult, String> {
     verify_attestation_bytes(TURIN_ATTESTATION).await
 }
@@ -93,6 +97,7 @@ pub fn verify_offline_snp_ffi(
     let ask = Crypto::from_pem(ask_pem).unwrap();
     let vcek = Crypto::from_pem(vcek_pem).unwrap();
 
-    verify::verify_attestation(&attestation_report, &ark, &ask, &vcek).map_err(|e| e.into())?;
+    verify::verify_attestation(&attestation_report, &vcek, Some(&ask), Some(&ark))
+        .map_err(|e| e.into())?;
     Ok(())
 }

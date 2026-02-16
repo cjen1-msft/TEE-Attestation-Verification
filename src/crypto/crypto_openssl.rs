@@ -31,13 +31,13 @@ impl CryptoBackend for Crypto {
     }
 
     fn verify_chain(
-        trusted_certs: Vec<Certificate>,
-        untrusted_chain: Vec<Certificate>,
-        leaf: Certificate,
+        trusted_certs: &[Certificate],
+        untrusted_chain: &[Certificate],
+        leaf: &Certificate,
     ) -> Result<()> {
         let mut store_builder = openssl::x509::store::X509StoreBuilder::new()?;
         for cert in trusted_certs {
-            store_builder.add_cert(cert)?;
+            store_builder.add_cert(cert.to_owned())?;
         }
         store_builder.set_flags(X509VerifyFlags::PARTIAL_CHAIN)?;
         let store = store_builder.build();
@@ -56,7 +56,7 @@ impl CryptoBackend for Crypto {
 
 impl Verifier<Certificate> for Certificate {
     fn verify(&self, other: &Certificate) -> Result<()> {
-        Crypto::verify_chain(vec![self.to_owned()], vec![], other.to_owned())
+        Crypto::verify_chain(&[self.to_owned()], &[], other)
     }
 }
 

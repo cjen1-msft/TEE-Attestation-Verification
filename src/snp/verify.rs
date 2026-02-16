@@ -17,7 +17,7 @@ pub fn verify_attestation(
     vcek: Certificate,
 ) -> Result<AttestationReport, SevVerificationError> {
     // Verify the certificate chain: ARK -> ASK -> VCEK
-    Crypto::verify_chain(vec![ark], vec![ask], vcek.clone())
+    Crypto::verify_chain(&[ark], &[ask], &vcek)
         .map_err(|e| SevVerificationError::CertificateChainError(format!("{:?}", e)))?;
 
     // Verify the attestation report signature using the VCEK

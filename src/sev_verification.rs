@@ -8,7 +8,7 @@
 #[cfg(feature = "online")]
 use crate::certificate_chain::AmdCertificates;
 use crate::crypto::Certificate;
-use crate::snp::verify::verify_tcb_values;
+use crate::snp::verify::SevVerificationError::*;
 use crate::{snp, AttestationReport};
 
 use log::{error, info};
@@ -81,6 +81,62 @@ impl SevVerifier {
         }
     }
 
+    fn update_result_from_verification_outcome(
+        verif_result: Result<(), snp::verify::SevVerificationError>,
+        result: &mut SevVerificationResult,
+    ) {
+        if let Err(e @ UnsupportedProcessor(_)) = verif_result {
+            let msg = format!("Certificate chain verification failed: {}", e);
+            result.errors.push(msg.clone());
+            error!("{}", msg);
+            return;
+        } else {
+            result.details.processor_identified = true;
+        }
+
+        if let Err(e @ InvalidRootCertificate(_)) = verif_result {
+            let msg = format!("Certificate chain verification failed: {}", e);
+            result.errors.push(msg.clone());
+            error!("{}", msg);
+            return;
+        }
+
+        if let Err(e @ CertificateChainError(_)) = verif_result {
+            let msg = format!("Certificate chain verification failed: {}", e);
+            result.errors.push(msg.clone());
+            error!("{}", msg);
+            return;
+        } else {
+            result.details.certificate_chain_valid = true;
+            info!("Certificate chain verified successfully (offline mode)");
+        }
+
+        if let Err(e @ SignatureVerificationError(_)) = verif_result {
+            let msg = format!("Signature verification failed: {}", e);
+            result.errors.push(msg.clone());
+            error!("{}", msg);
+            return;
+        } else {
+            result.details.signature_valid = true;
+            info!("Attestation signature verified successfully (offline mode)");
+        }
+
+        if let Err(e @ TcbVerificationError(_)) = verif_result {
+            let msg = format!("TCB verification failed: {}", e);
+            result.errors.push(msg.clone());
+            error!("{}", msg);
+            return;
+        } else {
+            result.details.tcb_valid = true;
+            info!("TCB values verified successfully (offline mode)");
+        }
+
+        if let Ok(()) = verif_result {
+            result.is_valid = true;
+            info!("AMD SEV-SNP verification PASSED (offline mode)");
+        }
+    }
+
     #[cfg(feature = "online")]
     pub async fn verify_attestation(
         &mut self,
@@ -88,13 +144,11 @@ impl SevVerifier {
     ) -> Result<SevVerificationResult, Box<dyn std::error::Error>> {
         let mut result = Self::new_result();
 
-        // Step 1: Identify processor model
         let processor_model = match Self::identify_processor(attestation_report, &mut result) {
             Some(model) => model,
             None => return Ok(result),
         };
 
-        // Step 2: Get VCEK certificate for this processor (includes chain verification)
         let vcek = match self
             .amd_certificates
             .get_vcek(processor_model, attestation_report)
@@ -114,27 +168,14 @@ impl SevVerifier {
             }
         };
 
-        // Step 3: Verify signature and TCB
-        Self::verify_signature_and_tcb(attestation_report, vcek, &mut result)?;
+        // skip verification of the certificate chain as it has already been done by the amd_certificates cache
+        let verif_result = snp::verify::verify_attestation(attestation_report, &vcek, None, None);
+
+        Self::update_result_from_verification_outcome(verif_result, &mut result);
 
         Ok(result)
     }
 
-    /// Verify an attestation report using caller-provided certificates (synchronous).
-    ///
-    /// This method performs offline verification without network access:
-    /// 1. Selects the pinned ARK based on the processor model in the report
-    /// 2. Verifies the certificate chain: ARK -> ASK -> VCEK
-    /// 3. Verifies that the attestation report signature is valid against the VCEK
-    /// 4. Verifies TCB values match certificate extensions
-    ///
-    /// # Arguments
-    /// * `attestation_report` - The attestation report to verify
-    /// * `ask` - The AMD SEV Key certificate (ASK)
-    /// * `vcek` - The Versioned Chip Endorsement Key certificate (VCEK)
-    ///
-    /// # Returns
-    /// A `SevVerificationResult` containing the verification outcome and details.
     pub fn verify_attestation_with_certs(
         attestation_report: &AttestationReport,
         ask: Certificate,
@@ -142,41 +183,15 @@ impl SevVerifier {
     ) -> Result<SevVerificationResult, Box<dyn std::error::Error>> {
         let mut result = Self::new_result();
 
-        // Step 1: Identify processor model
-        let processor_model = match Self::identify_processor(attestation_report, &mut result) {
-            Some(model) => model,
+        match Self::identify_processor(attestation_report, &mut result) {
             None => return Ok(result),
+            Some(_) => (),
         };
 
-        // Step 2: Create AmdCertificates from provided certs (verifies chain)
-        let amd_certificates = match AmdCertificates::from_certs(attestation_report, ask, vcek) {
-            Ok(certs) => {
-                result.details.certificates_fetched = true;
-                result.details.certificate_chain_valid = true;
-                info!("Certificate chain verified successfully (offline mode)");
-                certs
-            }
-            Err(e) => {
-                let msg = format!("Certificate chain verification failed: {}", e);
-                result.errors.push(msg.clone());
-                error!("{}", msg);
-                return Ok(result);
-            }
-        };
+        let verif_result =
+            snp::verify::verify_attestation(attestation_report, &vcek, Some(&ask), None);
 
-        // Step 3: Get the VCEK from the cache
-        let vcek = match amd_certificates.get_vcek_sync(processor_model, attestation_report) {
-            Ok(cert) => cert,
-            Err(e) => {
-                let msg = format!("Failed to retrieve VCEK: {}", e);
-                result.errors.push(msg.clone());
-                error!("{}", msg);
-                return Ok(result);
-            }
-        };
-
-        // Step 4: Verify signature and TCB
-        Self::verify_signature_and_tcb(attestation_report, vcek, &mut result)?;
+        Self::update_result_from_verification_outcome(verif_result, &mut result);
 
         Ok(result)
     }
@@ -222,44 +237,5 @@ impl SevVerifier {
                 None
             }
         }
-    }
-
-    /// Verify attestation signature and TCB values.
-    /// Updates result fields and logs appropriately.
-    fn verify_signature_and_tcb(
-        attestation_report: &AttestationReport,
-        vcek: &Certificate,
-        result: &mut SevVerificationResult,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Verify attestation signature
-        if let Err(e) = Self::verify_attestation_signature(attestation_report, vcek) {
-            let msg = format!("Signature verification failed: {}", e);
-            result.errors.push(msg.clone());
-            error!("{}", msg);
-            return Ok(());
-        }
-        result.details.signature_valid = true;
-
-        // Verify TCB values
-        if let Err(e) = verify_tcb_values(vcek, attestation_report) {
-            let msg = format!("TCB verification failed: {}", e);
-            result.errors.push(msg.clone());
-            error!("{}", msg);
-            return Ok(());
-        }
-        result.details.tcb_valid = true;
-
-        result.is_valid = true;
-        info!("AMD SEV-SNP verification PASSED");
-        Ok(())
-    }
-
-    fn verify_attestation_signature(
-        attestation_report: &AttestationReport,
-        vcek: &Certificate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::crypto::Verifier;
-        vcek.verify(attestation_report)
-            .map_err(|e| format!("Failed to verify attestation signature: {}", e).into())
     }
 }

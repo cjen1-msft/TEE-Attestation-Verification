@@ -3,6 +3,7 @@ use crate::crypto::{Certificate, Crypto, CryptoBackend, Verifier};
 use crate::{snp, AttestationReport};
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum SevVerificationError {
     UnsupportedProcessor(String),
     InvalidRootCertificate(String),
@@ -10,6 +11,20 @@ pub enum SevVerificationError {
     SignatureVerificationError(String),
     TcbVerificationError(String),
 }
+
+impl std::fmt::Display for SevVerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedProcessor(e) => write!(f, "Unsupported processor: {}", e),
+            Self::InvalidRootCertificate(e) => write!(f, "Invalid root certificate: {}", e),
+            Self::CertificateChainError(e) => write!(f, "Certificate chain error: {}", e),
+            Self::SignatureVerificationError(e) => write!(f, "Signature verification error: {}", e),
+            Self::TcbVerificationError(e) => write!(f, "TCB verification error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for SevVerificationError {}
 
 pub fn verify_attestation(
     attestation_report: AttestationReport,

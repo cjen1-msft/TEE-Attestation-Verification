@@ -9,16 +9,16 @@
 use crate::crypto::{Certificate, Crypto, CryptoBackend};
 use crate::snp::model::Generation;
 
-const MILAN_ARK_PEM: &[u8] = include_bytes!("milan_ark.pem");
-const GENOA_ARK_PEM: &[u8] = include_bytes!("genoa_ark.pem");
-const TURIN_ARK_PEM: &[u8] = include_bytes!("turin_ark.pem");
+pub const MILAN_ARK: &[u8] = include_bytes!("milan_ark.pem");
+pub const GENOA_ARK: &[u8] = include_bytes!("genoa_ark.pem");
+pub const TURIN_ARK: &[u8] = include_bytes!("turin_ark.pem");
 
 /// Get the pinned ARK certificate for a given processor generation.
 pub fn get_ark(generation: Generation) -> Result<Certificate, Box<dyn std::error::Error>> {
     let pem_bytes = match generation {
-        Generation::Milan => MILAN_ARK_PEM,
-        Generation::Genoa => GENOA_ARK_PEM,
-        Generation::Turin => TURIN_ARK_PEM,
+        Generation::Milan => MILAN_ARK,
+        Generation::Genoa => GENOA_ARK,
+        Generation::Turin => TURIN_ARK,
         #[allow(unreachable_patterns)]
         _ => {
             return Err(format!(

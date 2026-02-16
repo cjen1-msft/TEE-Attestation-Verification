@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::vec;
-
 use openssl::ecdsa::EcdsaSig;
 use openssl::stack::Stack;
 use openssl::x509::verify::X509VerifyFlags;

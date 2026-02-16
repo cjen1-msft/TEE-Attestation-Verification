@@ -80,12 +80,7 @@ mod test {
 
     #[test]
     fn full_chain_verifies() {
-        Crypto::verify_chain(
-            &[cert(MILAN_ARK)],
-            &[cert(MILAN_ASK)],
-            &cert(MILAN_VCEK),
-        )
-        .unwrap();
+        Crypto::verify_chain(&[cert(MILAN_ARK)], &[cert(MILAN_ASK)], &cert(MILAN_VCEK)).unwrap();
     }
 
     #[test]

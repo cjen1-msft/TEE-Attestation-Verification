@@ -9,7 +9,6 @@ use crate::certificate_chain::AmdCertificates;
 use crate::crypto::{Certificate, Crypto, CryptoBackend};
 use crate::{snp, AttestationReport};
 
-use asn1_rs::{oid, Oid};
 use log::{error, info};
 use std::collections::HashMap;
 
@@ -41,30 +40,6 @@ pub struct SevVerificationDetails {
     pub tcb_valid: bool,
     /// Processor model identified from the attestation report
     pub processor_model: Option<String>,
-}
-
-/// SEV-SNP OID extensions for VCEK certificate verification
-/// These OIDs are used to extract TCB values from X.509 certificate extensions
-enum SnpOid {
-    BootLoader,
-    Tee,
-    Snp,
-    Ucode,
-    HwId,
-    Fmc,
-}
-
-impl SnpOid {
-    fn oid(&self) -> Oid<'_> {
-        match self {
-            SnpOid::BootLoader => oid!(1.3.6 .1 .4 .1 .3704 .1 .3 .1),
-            SnpOid::Tee => oid!(1.3.6 .1 .4 .1 .3704 .1 .3 .2),
-            SnpOid::Snp => oid!(1.3.6 .1 .4 .1 .3704 .1 .3 .3),
-            SnpOid::Ucode => oid!(1.3.6 .1 .4 .1 .3704 .1 .3 .8),
-            SnpOid::HwId => oid!(1.3.6 .1 .4 .1 .3704 .1 .4),
-            SnpOid::Fmc => oid!(1.3.6 .1 .4 .1 .3704 .1 .3 .9),
-        }
-    }
 }
 
 /// WASM SEV verifier (only compiled for wasm32)
@@ -360,47 +335,47 @@ impl SevVerifier {
         match gen {
             snp::model::Generation::Milan | snp::model::Generation::Genoa => {
                 let tcb = attestation_report.reported_tcb.as_milan_genoa();
-                let bl_oid = SnpOid::BootLoader.oid().to_string();
+                let bl_oid = snp::utils::Oid::BootLoader.oid().to_string();
                 check_u8_ext(bl_oid, tcb.boot_loader)
                     .map_err(|e| format!("Error verifying TCB boot loader: {}", e))?;
 
-                let tee_oid = SnpOid::Tee.oid().to_string();
+                let tee_oid = snp::utils::Oid::Tee.oid().to_string();
                 check_u8_ext(tee_oid, tcb.tee)
                     .map_err(|e| format!("Error verifying TCB TEE: {}", e))?;
 
-                let snp_oid = SnpOid::Snp.oid().to_string();
+                let snp_oid = snp::utils::Oid::Snp.oid().to_string();
                 check_u8_ext(snp_oid, tcb.snp)
                     .map_err(|e| format!("Error verifying TCB SNP: {}", e))?;
 
-                let ucode_oid = SnpOid::Ucode.oid().to_string();
+                let ucode_oid = snp::utils::Oid::Ucode.oid().to_string();
                 check_u8_ext(ucode_oid, tcb.microcode)
                     .map_err(|e| format!("Error verifying TCB microcode: {}", e))?;
             }
             snp::model::Generation::Turin => {
                 let tcb = attestation_report.reported_tcb.as_turin();
-                let bl_oid = SnpOid::BootLoader.oid().to_string();
+                let bl_oid = snp::utils::Oid::BootLoader.oid().to_string();
                 check_u8_ext(bl_oid, tcb.boot_loader)
                     .map_err(|e| format!("Error verifying TCB boot loader: {}", e))?;
 
-                let tee_oid = SnpOid::Tee.oid().to_string();
+                let tee_oid = snp::utils::Oid::Tee.oid().to_string();
                 check_u8_ext(tee_oid, tcb.tee)
                     .map_err(|e| format!("Error verifying TCB TEE: {}", e))?;
 
-                let snp_oid = SnpOid::Snp.oid().to_string();
+                let snp_oid = snp::utils::Oid::Snp.oid().to_string();
                 check_u8_ext(snp_oid, tcb.snp)
                     .map_err(|e| format!("Error verifying TCB SNP: {}", e))?;
 
-                let ucode_oid = SnpOid::Ucode.oid().to_string();
+                let ucode_oid = snp::utils::Oid::Ucode.oid().to_string();
                 check_u8_ext(ucode_oid, tcb.microcode)
                     .map_err(|e| format!("Error verifying TCB microcode: {}", e))?;
 
-                let fmc_oid = SnpOid::Fmc.oid().to_string();
+                let fmc_oid = snp::utils::Oid::Fmc.oid().to_string();
                 check_u8_ext(fmc_oid, tcb.fmc)
                     .map_err(|e| format!("Error verifying TCB FMC: {}", e))?;
             }
         }
 
-        let hwid_oid = SnpOid::HwId.oid().to_string();
+        let hwid_oid = snp::utils::Oid::HwId.oid().to_string();
         if let Some(&cert_hwid) = ext_map.get(&hwid_oid) {
             if !check_ext(cert_hwid, attestation_report.chip_id.as_slice()) {
                 return Err("Report TCB ID and Certificate ID mismatch".into());

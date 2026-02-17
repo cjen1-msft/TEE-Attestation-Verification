@@ -3,4 +3,4 @@
 
 pub(crate) mod model;
 pub mod report;
-mod utils;
+pub(crate) mod utils;

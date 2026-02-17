@@ -78,6 +78,6 @@ mod offline {
     #[wasm_bindgen_test]
     fn test_suite() {
         init_logger();
-        common::verify_attestation_suite();
+        common::test_verify_attestation_suite();
     }
 }

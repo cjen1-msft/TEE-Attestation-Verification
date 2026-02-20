@@ -6,10 +6,7 @@
 //! This implementation is designed to be compiled only for wasm32 and uses
 //! wasm-bindgen for fetching KDS artifacts via an extension-provided JS bridge.
 use crate::certificate_chain::AmdCertificates;
-use crate::crypto::Certificate;
 use crate::{snp, AttestationReport};
-
-use log::{error, info};
 
 /// Result of AMD SEV-SNP attestation verification
 #[derive(Debug, Clone)]

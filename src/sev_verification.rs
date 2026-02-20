@@ -221,7 +221,7 @@ impl SevVerifier {
                 &vcek,
                 snp::verify::ChainVerification::WithPinnedArk { ask: &ask },
             ),
-            false,
+            true,
         );
 
         Ok(result)

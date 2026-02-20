@@ -44,5 +44,8 @@ pub async fn verify_attestation_report(attestation_report_json: &str) -> Result<
     let mut verifier = SevVerifier::new()
         .await
         .map_err(|e| format!("Failed to initialize verifier: {}", e))?;
-    verifier.verify_attestation(&attestation_report).await.map_err(|e| format!("Verification failed: {:?}", e)) 
+    verifier
+        .verify_attestation(&attestation_report)
+        .await
+        .map_err(|e| format!("Verification failed: {:?}", e))
 }

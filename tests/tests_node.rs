@@ -31,43 +31,25 @@ mod online {
     #[wasm_bindgen_test]
     async fn test_verify_milan_attestation() {
         init_logger();
-        let result = common::verify_milan_attestation()
+        common::verify_milan_attestation()
             .await
             .expect("Verification call failed");
-
-        assert!(
-            result.is_valid,
-            "Verification should pass: {:?}",
-            result.errors
-        );
     }
 
     #[wasm_bindgen_test]
     async fn test_verify_genoa_attestation() {
         init_logger();
-        let result = common::verify_genoa_attestation()
+        common::verify_genoa_attestation()
             .await
             .expect("Verification call failed");
-
-        assert!(
-            result.is_valid,
-            "Verification should pass: {:?}",
-            result.errors
-        );
     }
 
     #[wasm_bindgen_test]
     async fn test_verify_turin_attestation() {
         init_logger();
-        let result = common::verify_turin_attestation()
+        common::verify_turin_attestation()
             .await
             .expect("Verification call failed");
-
-        assert!(
-            result.is_valid,
-            "Verification should pass: {:?}",
-            result.errors
-        );
     }
 }
 

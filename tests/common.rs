@@ -3,7 +3,9 @@
 
 use tee_attestation_verification_lib::crypto::{Crypto, CryptoBackend};
 use tee_attestation_verification_lib::snp::verify::{self, ChainVerification};
-use tee_attestation_verification_lib::{AttestationReport, SevVerificationResult, SevVerifier};
+use tee_attestation_verification_lib::{
+    snp, AttestationReport, SevVerificationResult, SevVerifier,
+};
 use zerocopy::FromBytes;
 
 // Attestation reports
@@ -100,28 +102,28 @@ pub fn test_verify_attestation_suite() {
     }
 }
 
-pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<SevVerificationResult, String> {
+pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<(), String> {
     let attestation_report = AttestationReport::read_from_bytes(bytes)
-        .map_err(|e| format!("Failed to parse attestation report from bytes: {:?}", e))?;
+        .map_err(|e| format!("Failed to read attestation report: {:?}", e))?;
 
     let mut verifier = SevVerifier::new()
         .await
-        .map_err(|e| format!("Failed to initialize verifier: {e}"))?;
+        .map_err(|e| format!("Failed to initialize verifier: {:?}", e))?;
 
     verifier
         .verify_attestation(&attestation_report)
         .await
-        .map_err(|e| format!("Verification call failed: {e}"))
+        .map_err(|e| format!("Verification call failed: {:?}", e))
 }
 
-pub async fn verify_milan_attestation() -> Result<SevVerificationResult, String> {
+pub async fn verify_milan_attestation() -> Result<(), String> {
     verify_attestation_bytes(MILAN_ATTESTATION).await
 }
 
-pub async fn verify_genoa_attestation() -> Result<SevVerificationResult, String> {
+pub async fn verify_genoa_attestation() -> Result<(), String> {
     verify_attestation_bytes(GENOA_ATTESTATION).await
 }
 
-pub async fn verify_turin_attestation() -> Result<SevVerificationResult, String> {
+pub async fn verify_turin_attestation() -> Result<(), String> {
     verify_attestation_bytes(TURIN_ATTESTATION).await
 }

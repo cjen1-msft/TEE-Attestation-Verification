@@ -6,7 +6,7 @@ use crate::{snp, snp::utils::Oid, AttestationReport};
 use std::collections::HashMap;
 
 #[derive(Debug)]
-pub enum SevVerificationError {
+pub enum VerificationError {
     UnsupportedProcessor(String),
     InvalidRootCertificate(String),
     CertificateChainError(String),
@@ -14,7 +14,7 @@ pub enum SevVerificationError {
     TcbVerificationError(String),
 }
 
-impl std::fmt::Display for SevVerificationError {
+impl std::fmt::Display for VerificationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnsupportedProcessor(e) => write!(f, "Unsupported processor: {}", e),
@@ -26,7 +26,7 @@ impl std::fmt::Display for SevVerificationError {
     }
 }
 
-impl std::error::Error for SevVerificationError {}
+impl std::error::Error for VerificationError {}
 
 pub enum ChainVerification<'a> {
     Skip,
@@ -48,29 +48,29 @@ pub fn verify_attestation(
     attestation_report: &AttestationReport,
     vcek: &Certificate,
     chain_verification: ChainVerification<'_>,
-) -> Result<(), SevVerificationError> {
+) -> Result<(), VerificationError> {
     let generation = snp::model::Generation::from_family_and_model(
         attestation_report.cpuid_fam_id,
         attestation_report.cpuid_mod_id,
     )
-    .map_err(|e| SevVerificationError::UnsupportedProcessor(format!("{:?}", e)))?;
+    .map_err(|e| VerificationError::UnsupportedProcessor(format!("{:?}", e)))?;
 
     match chain_verification {
         ChainVerification::WithProvidedArk { ask, ark } => {
             // If ARK is provided, verify it matches the pinned ARK for this generation
             ark_matches_pinned(generation, ark)
-                .map_err(|e| SevVerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
+                .map_err(|e| VerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
 
             // Verify the certificate chain: ARK -> ASK -> VCEK
             Crypto::verify_chain(vec![ark.clone()], vec![ask.clone()], vcek.clone())
-                .map_err(|e| SevVerificationError::CertificateChainError(format!("{:?}", e)))?;
+                .map_err(|e| VerificationError::CertificateChainError(format!("{:?}", e)))?;
         }
         ChainVerification::WithPinnedArk { ask } => {
             // No ARK provided, use pinned ARK for chain verification
             let pinned_ark = crate::pinned_arks::get_ark(generation)
-                .map_err(|e| SevVerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
+                .map_err(|e| VerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
             Crypto::verify_chain(vec![pinned_ark], vec![ask.clone()], vcek.clone())
-                .map_err(|e| SevVerificationError::CertificateChainError(format!("{:?}", e)))?;
+                .map_err(|e| VerificationError::CertificateChainError(format!("{:?}", e)))?;
         }
         ChainVerification::Skip => {
             // No ASK provided, skip chain verification
@@ -79,11 +79,11 @@ pub fn verify_attestation(
 
     // Verify the attestation report signature using the VCEK
     vcek.verify(attestation_report)
-        .map_err(|e| SevVerificationError::SignatureVerificationError(format!("{:?}", e)))?;
+        .map_err(|e| VerificationError::SignatureVerificationError(format!("{:?}", e)))?;
 
     // Verify that the TCB values in the VCEK match those reported in the attestation report
     verify_tcb_values(vcek, attestation_report)
-        .map_err(|e| SevVerificationError::TcbVerificationError(format!("{:?}", e)))?;
+        .map_err(|e| VerificationError::TcbVerificationError(format!("{:?}", e)))?;
 
     Ok(())
 }

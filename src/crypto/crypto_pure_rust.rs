@@ -100,6 +100,13 @@ impl CryptoBackend for Crypto {
         }
         Ok(())
     }
+
+    fn get_public_key(cert: &Self::Certificate) -> Result<Vec<u8>> {
+        cert.tbs_certificate
+            .subject_public_key_info
+            .to_der()
+            .map_err(|e| format!("Failed to encode SubjectPublicKeyInfo: {:?}", e).into())
+    }
 }
 
 fn verify_report_sig_ecdsa_p384_sha384(

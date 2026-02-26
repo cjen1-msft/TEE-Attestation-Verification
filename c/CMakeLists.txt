@@ -26,11 +26,14 @@ endif()
 set(TAV_STATIC_LIB
     "${_crate_root}/target/${CARGO_OUT_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}tee_attestation_verification_lib${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
+separate_arguments(_cargo_features NATIVE_COMMAND "${TAV_CARGO_FEATURES}")
+
 add_custom_command(
     OUTPUT  "${TAV_STATIC_LIB}"
     COMMAND cargo build ${CARGO_BUILD_FLAGS}
             --manifest-path "${TAV_CARGO_MANIFEST}"
             --lib
+            ${_cargo_features}
     COMMENT "Building tee-attestation-verification (Rust) …"
     VERBATIM
 )
@@ -49,9 +52,12 @@ set_target_properties(tee_attestation_verification PROPERTIES
 add_dependencies(tee_attestation_verification cargo_build_tee_attestation_verification)
 
 # Transitive dependencies required at final link time.
-find_package(OpenSSL REQUIRED)
-set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES
-    OpenSSL::SSL OpenSSL::Crypto)
+string(FIND "${TAV_CARGO_FEATURES}" "crypto_openssl" _has_openssl)
+if(NOT _has_openssl EQUAL -1)
+    find_package(OpenSSL REQUIRED)
+    set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+        OpenSSL::SSL OpenSSL::Crypto)
+endif()
 
 if(UNIX)
     set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES

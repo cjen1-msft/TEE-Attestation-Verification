@@ -123,7 +123,7 @@ fn parse_pem(name: &str, pem: &[u8]) -> Result<Certificate, TAVError> {
 /// All pointer/length pairs must be valid readable memory.
 /// `err_out` must be a valid, non-null pointer to a `*mut TAVError`.
 #[no_mangle]
-pub unsafe extern "C" fn tav_verify_attestation(
+pub unsafe extern "C" fn tav_snp_verify_attestation(
     report_ptr: *const u8,
     report_len: usize,
     ark_pem_ptr: *const u8,
@@ -164,7 +164,7 @@ pub unsafe extern "C" fn tav_verify_attestation(
 /// Get the error code from an error handle.
 ///
 /// # Safety
-/// `err` must be a non-null pointer returned by [`tav_verify_attestation`].
+/// `err` must be a non-null pointer returned by [`tav_snp_verify_attestation`].
 #[no_mangle]
 pub unsafe extern "C" fn tav_error_code(err: *const TAVError) -> TAVErrorCode {
     (*err).code
@@ -176,18 +176,18 @@ pub unsafe extern "C" fn tav_error_code(err: *const TAVError) -> TAVErrorCode {
 /// error.  Do **not** free the returned string.
 ///
 /// # Safety
-/// `err` must be a non-null pointer returned by [`tav_verify_attestation`].
+/// `err` must be a non-null pointer returned by [`tav_snp_verify_attestation`].
 #[no_mangle]
 pub unsafe extern "C" fn tav_error_message(err: *const TAVError) -> *const c_char {
     (*err).message.as_ptr()
 }
 
-/// Free an error previously returned by [`tav_verify_attestation`].
+/// Free an error previously returned by [`tav_snp_verify_attestation`].
 ///
 /// Safe to call with NULL (no-op).
 ///
 /// # Safety
-/// `err` must be a pointer returned by [`tav_verify_attestation`], or NULL.
+/// `err` must be a pointer returned by [`tav_snp_verify_attestation`], or NULL.
 #[no_mangle]
 pub unsafe extern "C" fn tav_free_error(err: *mut TAVError) {
     if !err.is_null() {

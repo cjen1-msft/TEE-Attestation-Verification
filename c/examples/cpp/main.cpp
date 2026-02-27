@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     auto ark  = read_file(argv[4]);
 
     TAVError *err = nullptr;
-    const AttestationReport *report = tav_verify_attestation(
+    const TAVSNPAttestationReport *report = tav_snp_verify_attestation(
         report_bytes.data(), report_bytes.size(),
         ark.data(),  ark.size(),
         ask.data(),  ask.size(),

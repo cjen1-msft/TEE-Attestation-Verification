@@ -1,6 +1,6 @@
 # C++ Example — TEE Attestation Verification
 
-This example demonstrates calling the Rust `tav_verify_attestation`
+This example demonstrates calling the Rust `tav_snp_verify_attestation`
 function from C++ via the library's C FFI.
 
 ## Prerequisites

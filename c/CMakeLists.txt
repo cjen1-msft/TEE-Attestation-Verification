@@ -59,7 +59,6 @@ if(NOT _has_openssl EQUAL -1)
         OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
-if(UNIX)
-    set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES
-        pthread dl m)
-endif()
+# Rust std requires these for linking, but the actual application does not require them
+set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+    pthread dl m)

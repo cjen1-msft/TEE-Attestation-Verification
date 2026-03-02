@@ -30,7 +30,7 @@ This will:
 ## Run
 
 ```bash
-./verify_example <report.bin> <vcek.pem> <ask.pem> <ark.pem>
+./verify_example <report.bin> <ark.pem> <ask.pem> <vcek.pem>
 ```
 
 For example, using the included test data:
@@ -38,9 +38,9 @@ For example, using the included test data:
 ```bash
 ./verify_example \
     ../../../../tests/test_data/milan_attestation_report.bin \
-    ../../../../tests/test_data/milan_vcek.pem \
+    ../../../../src/pinned_arks/milan_ark.pem \
     ../../../../tests/test_data/milan_ask.pem \
-    ../../../../src/pinned_arks/milan_ark.pem
+    ../../../../tests/test_data/milan_vcek.pem
 ```
 
 On success, all report fields are printed:
@@ -69,9 +69,3 @@ as transitive `INTERFACE_LINK_LIBRARIES`. In your own CMake project:
 ```cmake
 target_link_libraries(my_app PRIVATE tee_attestation_verification)
 ```
-
-## Out-of-tree / standalone usage
-
-When this `c/examples/cpp/` directory is copied out of the repository, CMake
-will automatically fetch the repo via `FetchContent` from GitHub — no manual
-clone required.

@@ -5,7 +5,7 @@
 // tee-attestation-verification Rust library via its C FFI.
 //
 // Usage:
-//   ./verify_example <report.bin> <vcek.pem> <ask.pem> <ark.pem>
+//   ./verify_example <report.bin> <ark.pem> <ask.pem> <vcek.pem>
 
 #include <cstdio>
 #include <cstdlib>
@@ -40,14 +40,14 @@ static void print_hex(const uint8_t *data, size_t len) {
 int main(int argc, char *argv[]) {
     if (argc != 5) {
         std::cerr << "usage: " << argv[0]
-                  << " <report.bin> <vcek.pem> <ask.pem> <ark.pem>\n";
+                  << " <report.bin> <ark.pem> <ask.pem> <vcek.pem>\n";
         return 1;
     }
 
     auto report_bytes = read_file(argv[1]);
-    auto vcek = read_file(argv[2]);
+    auto ark  = read_file(argv[2]);
     auto ask  = read_file(argv[3]);
-    auto ark  = read_file(argv[4]);
+    auto vcek = read_file(argv[4]);
 
     TAVError *err = nullptr;
     const TAVSNPAttestationReport *report = tav_snp_verify_attestation(

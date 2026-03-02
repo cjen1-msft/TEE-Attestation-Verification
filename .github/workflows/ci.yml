@@ -117,14 +117,14 @@ jobs:
         run: |
           c/examples/cpp/build/verify_example \
             tests/test_data/milan_attestation_report.bin \
-            tests/test_data/milan_vcek.pem \
+            src/pinned_arks/milan_ark.pem \
             tests/test_data/milan_ask.pem \
-            src/pinned_arks/milan_ark.pem
+            tests/test_data/milan_vcek.pem
 
       - name: Verify Milan report with wrong ARK (should fail)
         run: |
           ! c/examples/cpp/build/verify_example \
             tests/test_data/milan_attestation_report.bin \
-            tests/test_data/milan_vcek.pem \
+            src/pinned_arks/turin_ark.pem \
             tests/test_data/milan_ask.pem \
-            src/pinned_arks/turin_ark.pem
+            tests/test_data/milan_vcek.pem

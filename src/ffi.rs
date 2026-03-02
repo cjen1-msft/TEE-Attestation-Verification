@@ -24,13 +24,16 @@ use crate::snp::verify::{self, ChainVerification, VerificationError};
 /// Error categories exposed over FFI.
 ///
 /// Numbering convention:
-/// - 1..=3: FFI/input parsing failures
-/// - 101..=105: attestation verification failures (mapped from SevVerificationError)
+/// - [1]: FFI/input parsing failures
+/// - [101:105]: attestation verification failures (mapped from SevVerificationError)
 #[repr(u32)]
 #[derive(Debug, Clone, Copy)]
 pub enum TAVErrorCode {
     /// Invalid arguments passed to the function (bad report, bad PEM, etc.).
     InvalidArgument = 1,
+    /// Invalid argument when retrieving an error message (e.g., null pointer).
+    /// Note: this will never be returned otherwise
+    ErrorCodeInvalidArgument = 2,
     /// Processor model is unsupported.
     UnsupportedProcessor = 101,
     /// The provided ARK does not match the pinned root certificate.
@@ -79,8 +82,56 @@ impl From<VerificationError> for TAVError {
 
 /// Write `err` through `out` and return `null`.
 unsafe fn set_error(out: *mut *mut TAVError, err: TAVError) -> *const AttestationReport {
-    *out = Box::into_raw(Box::new(err));
+    if !out.is_null() {
+        *out = Box::into_raw(Box::new(err));
+    }
     std::ptr::null()
+}
+
+// ---------------------------------------------------------------------------
+// Error accessors
+// ---------------------------------------------------------------------------
+
+/// Get the error code from an error handle.
+///
+/// # Safety
+/// `err` may be NULL. If NULL, returns [`TAVErrorCode::ErrorCodeInvalidArgument`].
+#[no_mangle]
+pub unsafe extern "C" fn tav_error_code(err: *const TAVError) -> TAVErrorCode {
+    if err.is_null() {
+        TAVErrorCode::ErrorCodeInvalidArgument
+    } else {
+        (*err).code
+    }
+}
+
+/// Get a NUL-terminated error message from an error handle.
+///
+/// The returned pointer is valid until [`tav_free_error`] is called on this
+/// error.  Do **not** free the returned string.
+///
+/// # Safety
+/// `err` may be NULL. If NULL, returns a static fallback error message.
+#[no_mangle]
+pub unsafe extern "C" fn tav_error_message(err: *const TAVError) -> *const c_char {
+    if err.is_null() {
+        b"null TAVError pointer\0".as_ptr() as *const c_char
+    } else {
+        (*err).message.as_ptr()
+    }
+}
+
+/// Free an error previously returned by [`tav_snp_verify_attestation`].
+///
+/// Safe to call with NULL (no-op).
+///
+/// # Safety
+/// `err` must be a pointer returned by [`tav_snp_verify_attestation`], or NULL.
+#[no_mangle]
+pub unsafe extern "C" fn tav_free_error(err: *mut TAVError) {
+    if !err.is_null() {
+        drop(Box::from_raw(err));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,43 +205,5 @@ pub unsafe extern "C" fn tav_snp_verify_attestation(
     match inner() {
         Ok(report) => report as *const AttestationReport,
         Err(e) => set_error(err_out, e),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Error accessors
-// ---------------------------------------------------------------------------
-
-/// Get the error code from an error handle.
-///
-/// # Safety
-/// `err` must be a non-null pointer returned by [`tav_snp_verify_attestation`].
-#[no_mangle]
-pub unsafe extern "C" fn tav_error_code(err: *const TAVError) -> TAVErrorCode {
-    (*err).code
-}
-
-/// Get a NUL-terminated error message from an error handle.
-///
-/// The returned pointer is valid until [`tav_free_error`] is called on this
-/// error.  Do **not** free the returned string.
-///
-/// # Safety
-/// `err` must be a non-null pointer returned by [`tav_snp_verify_attestation`].
-#[no_mangle]
-pub unsafe extern "C" fn tav_error_message(err: *const TAVError) -> *const c_char {
-    (*err).message.as_ptr()
-}
-
-/// Free an error previously returned by [`tav_snp_verify_attestation`].
-///
-/// Safe to call with NULL (no-op).
-///
-/// # Safety
-/// `err` must be a pointer returned by [`tav_snp_verify_attestation`], or NULL.
-#[no_mangle]
-pub unsafe extern "C" fn tav_free_error(err: *mut TAVError) {
-    if !err.is_null() {
-        drop(Box::from_raw(err));
     }
 }

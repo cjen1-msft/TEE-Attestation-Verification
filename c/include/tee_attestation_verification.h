@@ -24,15 +24,19 @@ extern "C" {
 /** Error code categories.  Must stay in sync with Rust TAVErrorCode enum.
  *  Numbering convention:
  *    1:       FFI/input parsing failures (bad report, bad PEM, etc.)
+ *    2:       Invalid/null error handle passed to error accessor
  *    101-105: attestation verification failures
  */
-enum TAVErrorCode {
-    TAV_ERROR_INVALID_ARGUMENT          = 1,
-    TAV_ERROR_UNSUPPORTED_PROCESSOR     = 101,
-    TAV_ERROR_INVALID_ROOT_CERTIFICATE  = 102,
-    TAV_ERROR_CERTIFICATE_CHAIN         = 103,
-    TAV_ERROR_SIGNATURE_VERIFICATION    = 104,
-    TAV_ERROR_TCB_VERIFICATION          = 105
+typedef uint32_t TAVErrorCode;
+
+enum {
+    TAV_ERROR_INVALID_ARGUMENT               = 1,
+    TAV_ERROR_ERROR_CODE_IS_NULL             = 2,
+    TAV_ERROR_UNSUPPORTED_PROCESSOR          = 101,
+    TAV_ERROR_INVALID_ROOT_CERTIFICATE       = 102,
+    TAV_ERROR_CERTIFICATE_CHAIN              = 103,
+    TAV_ERROR_SIGNATURE_VERIFICATION         = 104,
+    TAV_ERROR_TCB_VERIFICATION               = 105
 };
 
 /** Opaque error handle.
@@ -41,7 +45,7 @@ enum TAVErrorCode {
 struct TAVError;
 
 /** Get the error category code from an error handle. */
-enum TAVErrorCode tav_error_code(const struct TAVError *err);
+TAVErrorCode tav_error_code(const struct TAVError *err);
 
 /** Get a NUL-terminated error message from an error handle.
  *  The returned string is valid until tav_free_error() is called.
@@ -54,87 +58,27 @@ void tav_free_error(struct TAVError *err);
 
 
 /* ----------------------------------------------------------------------- */
-/* TCB version structures                                                  */
+/* Opaque report handle                                                    */
 /* ----------------------------------------------------------------------- */
 
-/** Raw 8-byte TCB version.  Interpret via the Milan/Genoa or Turin layout. */
-struct TAVSNPTcbVersionRaw {
-    uint8_t raw[8];
-};
+/** Opaque handle to a verified SNP attestation report.
+ *  Returned by tav_snp_verify_attestation().  Must be freed with
+ *  tav_free_report(). */
+struct TAVSNPAttestationReport;
 
-/** TCB version layout for Milan / Genoa processors. */
-struct TAVSNPTcbVersionMilanGenoa {
-    uint8_t boot_loader;
-    uint8_t tee;
-    uint8_t reserved[4];
-    uint8_t snp;
-    uint8_t microcode;
-};
-
-/** TCB version layout for Turin processors. */
-struct TAVSNPTcbVersionTurin {
-    uint8_t fmc;
-    uint8_t boot_loader;
-    uint8_t tee;
-    uint8_t snp;
-    uint8_t reserved[3];
-    uint8_t microcode;
-};
-
-/* ----------------------------------------------------------------------- */
-/* Signature                                                               */
-/* ----------------------------------------------------------------------- */
-
-struct TAVSNPSignature {
-    uint8_t r[72];
-    uint8_t s[72];
-    uint8_t reserved[512 - 144];
-};
-
-/* ----------------------------------------------------------------------- */
-/* SNP Attestation Report (0x4A0 = 1184 bytes)                             */
-/* ----------------------------------------------------------------------- */
-/* See AMD SEV-SNP ABI Specification, Table 23: ATTESTATION_REPORT.        */
-/* Layout matches the Rust #[repr(C)] AttestationReport exactly.           */
-
-struct TAVSNPAttestationReport {
-    uint32_t              version;           /* 0x000 */
-    uint32_t              guest_svn;         /* 0x004 */
-    uint64_t              policy;            /* 0x008 */
-    uint8_t               family_id[16];     /* 0x010 */
-    uint8_t               image_id[16];      /* 0x020 */
-    uint32_t              vmpl;              /* 0x030 */
-    uint32_t              signature_algo;    /* 0x034 */
-    struct TAVSNPTcbVersionRaw  platform_version;  /* 0x038 */
-    uint64_t              platform_info;     /* 0x040 */
-    uint32_t              flags;             /* 0x048 */
-    uint32_t              reserved0;         /* 0x04C */
-    uint8_t               report_data[64];   /* 0x050 */
-    uint8_t               measurement[48];   /* 0x090 */
-    uint8_t               host_data[32];     /* 0x0C0 */
-    uint8_t               id_key_digest[48]; /* 0x0E0 */
-    uint8_t               author_key_digest[48]; /* 0x110 */
-    uint8_t               report_id[32];     /* 0x140 */
-    uint8_t               report_id_ma[32];  /* 0x160 */
-    struct TAVSNPTcbVersionRaw  reported_tcb;      /* 0x180 */
-    uint8_t               cpuid_fam_id;      /* 0x188 */
-    uint8_t               cpuid_mod_id;      /* 0x189 */
-    uint8_t               cpuid_step;        /* 0x18A */
-    uint8_t               reserved1[21];     /* 0x18B */
-    uint8_t               chip_id[64];       /* 0x1A0 */
-    struct TAVSNPTcbVersionRaw  committed_tcb;     /* 0x1E0 */
-    uint8_t               current_build;     /* 0x1E8 */
-    uint8_t               current_minor;     /* 0x1E9 */
-    uint8_t               current_major;     /* 0x1EA */
-    uint8_t               reserved2;         /* 0x1EB */
-    uint8_t               committed_build;   /* 0x1EC */
-    uint8_t               committed_minor;   /* 0x1ED */
-    uint8_t               committed_major;   /* 0x1EE */
-    uint8_t               reserved3;         /* 0x1EF */
-    struct TAVSNPTcbVersionRaw  launch_tcb;        /* 0x1F0 */
-    uint8_t               reserved4[168];    /* 0x1F8 */
-    struct TAVSNPSignature   signature;         /* 0x2A0 */
-};
+/* Field sizes for byte-array accessors. */
+#define TAV_SNP_FAMILY_ID_SIZE          16
+#define TAV_SNP_IMAGE_ID_SIZE           16
+#define TAV_SNP_TCB_VERSION_SIZE        8
+#define TAV_SNP_REPORT_DATA_SIZE        64
+#define TAV_SNP_MEASUREMENT_SIZE        48
+#define TAV_SNP_HOST_DATA_SIZE          32
+#define TAV_SNP_ID_KEY_DIGEST_SIZE      48
+#define TAV_SNP_AUTHOR_KEY_DIGEST_SIZE  48
+#define TAV_SNP_REPORT_ID_SIZE          32
+#define TAV_SNP_REPORT_ID_MA_SIZE       32
+#define TAV_SNP_CHIP_ID_SIZE            64
+#define TAV_SNP_SIGNATURE_COMPONENT_SIZE 72
 
 /* ----------------------------------------------------------------------- */
 /* FFI verify functions                                                    */
@@ -152,15 +96,19 @@ struct TAVSNPAttestationReport {
  * @param ask_pem_len   Length of the ASK PEM buffer in bytes.
  * @param vcek_pem_ptr  Pointer to the PEM-encoded VCEK certificate.
  * @param vcek_pem_len  Length of the VCEK PEM buffer in bytes.
- * @param err_out       On failure, set to an opaque error handle that must
- *                      be freed with tav_free_error().  Must not be NULL.
+ * @param err_out       Optional error output. If non-NULL, `*err_out` must be
+ *                      NULL on entry; it is set to NULL on success and set to
+ *                      an opaque error handle on failure. Any returned error
+ *                      handle must be freed with tav_free_error().
  *
- * @return On success, a pointer into report_ptr reinterpreted as an
- *         TAVSNPAttestationReport.  The pointer borrows from report_ptr — the
- *         caller must keep the report buffer alive while using it.
- *         On failure, returns NULL and sets *err_out.
+ * @return On success, an opaque report handle that must be freed with
+ *         tav_free_report(). The returned handle borrows the attestation
+ *         report bytes from report_ptr, so the caller must keep report_ptr
+ *         alive and unchanged while using the handle. Use tav_snp_report_*()
+ *         accessors to read fields.
+ *         On failure, returns NULL and, if err_out is non-NULL, sets *err_out.
  */
-const struct TAVSNPAttestationReport *tav_snp_verify_attestation(
+struct TAVSNPAttestationReport *tav_snp_verify_attestation(
     const uint8_t        *report_ptr,
     size_t                report_len,
     const uint8_t        *ark_pem_ptr,
@@ -171,6 +119,63 @@ const struct TAVSNPAttestationReport *tav_snp_verify_attestation(
     size_t                vcek_pem_len,
     struct TAVError     **err_out
 );
+
+/** Free a report returned by tav_snp_verify_attestation().
+ *  Safe to call with NULL (no-op). */
+void tav_free_report(struct TAVSNPAttestationReport *report);
+
+/* ----------------------------------------------------------------------- */
+/* Report accessors – scalar fields (native byte order)                    */
+/* ----------------------------------------------------------------------- */
+/* All report accessors require `report` to be a non-NULL pointer returned  */
+/* by tav_snp_verify_attestation(). Because the report handle borrows from   */
+/* report_ptr, the original report buffer must remain alive and unchanged    */
+/* until tav_free_report() is called.                                        */
+
+uint32_t tav_snp_report_version(const struct TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_guest_svn(const struct TAVSNPAttestationReport *report);
+uint64_t tav_snp_report_policy(const struct TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_vmpl(const struct TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_signature_algo(const struct TAVSNPAttestationReport *report);
+uint64_t tav_snp_report_platform_info(const struct TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_flags(const struct TAVSNPAttestationReport *report);
+
+/* ----------------------------------------------------------------------- */
+/* Report accessors – single-byte fields                                   */
+/* ----------------------------------------------------------------------- */
+
+uint8_t tav_snp_report_cpuid_fam_id(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_cpuid_mod_id(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_cpuid_step(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_current_build(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_current_minor(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_current_major(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_committed_build(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_committed_minor(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_committed_major(const struct TAVSNPAttestationReport *report);
+
+/* ----------------------------------------------------------------------- */
+/* Report accessors – byte-array fields                                    */
+/* ----------------------------------------------------------------------- */
+/* Returned pointers borrow from the report handle and are valid until      */
+/* tav_free_report() is called.  See TAV_SNP_*_SIZE defines for lengths.    */
+
+const uint8_t *tav_snp_report_family_id(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_image_id(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_platform_version(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_report_data(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_measurement(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_host_data(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_id_key_digest(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_author_key_digest(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_report_id(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_report_id_ma(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_reported_tcb(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_chip_id(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_committed_tcb(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_launch_tcb(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_signature_r(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_signature_s(const struct TAVSNPAttestationReport *report);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     auto vcek = read_file(argv[4]);
 
     TAVError *err = nullptr;
-    const TAVSNPAttestationReport *report = tav_snp_verify_attestation(
+    TAVSNPAttestationReport *report = tav_snp_verify_attestation(
         report_bytes.data(), report_bytes.size(),
         ark.data(),  ark.size(),
         ask.data(),  ask.size(),
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
 
     if (report == nullptr) {
         std::cerr << "verification failed (code "
-                  << tav_error_code(err) << "): "
+                  << static_cast<unsigned>(tav_error_code(err)) << "): "
                   << tav_error_message(err) << "\n";
         tav_free_error(err);
         return 1;
@@ -68,54 +68,56 @@ int main(int argc, char *argv[]) {
 
     std::cout << "verification succeeded\n\n";
 
-    std::cout << "  version:           " << report->version       << "\n"
-              << "  guest_svn:         " << report->guest_svn     << "\n"
-              << "  policy:            0x" << std::hex << report->policy << std::dec << "\n"
-              << "  family_id:         "; print_hex(report->family_id, sizeof(report->family_id));
+    std::cout << "  version:           " << tav_snp_report_version(report)       << "\n"
+              << "  guest_svn:         " << tav_snp_report_guest_svn(report)     << "\n"
+              << "  policy:            0x" << std::hex << tav_snp_report_policy(report) << std::dec << "\n"
+              << "  family_id:         "; print_hex(tav_snp_report_family_id(report), TAV_SNP_FAMILY_ID_SIZE);
     std::cout << "\n"
-              << "  image_id:          "; print_hex(report->image_id, sizeof(report->image_id));
+              << "  image_id:          "; print_hex(tav_snp_report_image_id(report), TAV_SNP_IMAGE_ID_SIZE);
     std::cout << "\n"
-              << "  vmpl:              " << report->vmpl          << "\n"
-              << "  signature_algo:    " << report->signature_algo << "\n"
-              << "  platform_version:  "; print_hex(report->platform_version.raw, sizeof(report->platform_version.raw));
+              << "  vmpl:              " << tav_snp_report_vmpl(report)          << "\n"
+              << "  signature_algo:    " << tav_snp_report_signature_algo(report) << "\n"
+              << "  platform_version:  "; print_hex(tav_snp_report_platform_version(report), TAV_SNP_TCB_VERSION_SIZE);
     std::cout << "\n"
-              << "  platform_info:     0x" << std::hex << report->platform_info << std::dec << "\n"
-              << "  flags:             0x" << std::hex << report->flags << std::dec << "\n"
-              << "  report_data:       "; print_hex(report->report_data, sizeof(report->report_data));
+              << "  platform_info:     0x" << std::hex << tav_snp_report_platform_info(report) << std::dec << "\n"
+              << "  flags:             0x" << std::hex << tav_snp_report_flags(report) << std::dec << "\n"
+              << "  report_data:       "; print_hex(tav_snp_report_report_data(report), TAV_SNP_REPORT_DATA_SIZE);
     std::cout << "\n"
-              << "  measurement:       "; print_hex(report->measurement, sizeof(report->measurement));
+              << "  measurement:       "; print_hex(tav_snp_report_measurement(report), TAV_SNP_MEASUREMENT_SIZE);
     std::cout << "\n"
-              << "  host_data:         "; print_hex(report->host_data, sizeof(report->host_data));
+              << "  host_data:         "; print_hex(tav_snp_report_host_data(report), TAV_SNP_HOST_DATA_SIZE);
     std::cout << "\n"
-              << "  id_key_digest:     "; print_hex(report->id_key_digest, sizeof(report->id_key_digest));
+              << "  id_key_digest:     "; print_hex(tav_snp_report_id_key_digest(report), TAV_SNP_ID_KEY_DIGEST_SIZE);
     std::cout << "\n"
-              << "  author_key_digest: "; print_hex(report->author_key_digest, sizeof(report->author_key_digest));
+              << "  author_key_digest: "; print_hex(tav_snp_report_author_key_digest(report), TAV_SNP_AUTHOR_KEY_DIGEST_SIZE);
     std::cout << "\n"
-              << "  report_id:         "; print_hex(report->report_id, sizeof(report->report_id));
+              << "  report_id:         "; print_hex(tav_snp_report_report_id(report), TAV_SNP_REPORT_ID_SIZE);
     std::cout << "\n"
-              << "  report_id_ma:      "; print_hex(report->report_id_ma, sizeof(report->report_id_ma));
+              << "  report_id_ma:      "; print_hex(tav_snp_report_report_id_ma(report), TAV_SNP_REPORT_ID_MA_SIZE);
     std::cout << "\n"
-              << "  reported_tcb:      "; print_hex(report->reported_tcb.raw, sizeof(report->reported_tcb.raw));
+              << "  reported_tcb:      "; print_hex(tav_snp_report_reported_tcb(report), TAV_SNP_TCB_VERSION_SIZE);
     std::cout << "\n"
-              << "  cpuid_fam_id:      " << static_cast<unsigned>(report->cpuid_fam_id) << "\n"
-              << "  cpuid_mod_id:      " << static_cast<unsigned>(report->cpuid_mod_id) << "\n"
-              << "  cpuid_step:        " << static_cast<unsigned>(report->cpuid_step)    << "\n"
-              << "  chip_id:           "; print_hex(report->chip_id, sizeof(report->chip_id));
+              << "  cpuid_fam_id:      " << static_cast<unsigned>(tav_snp_report_cpuid_fam_id(report)) << "\n"
+              << "  cpuid_mod_id:      " << static_cast<unsigned>(tav_snp_report_cpuid_mod_id(report)) << "\n"
+              << "  cpuid_step:        " << static_cast<unsigned>(tav_snp_report_cpuid_step(report))    << "\n"
+              << "  chip_id:           "; print_hex(tav_snp_report_chip_id(report), TAV_SNP_CHIP_ID_SIZE);
     std::cout << "\n"
-              << "  committed_tcb:     "; print_hex(report->committed_tcb.raw, sizeof(report->committed_tcb.raw));
+              << "  committed_tcb:     "; print_hex(tav_snp_report_committed_tcb(report), TAV_SNP_TCB_VERSION_SIZE);
     std::cout << "\n"
-              << "  current_build:     " << static_cast<unsigned>(report->current_build) << "\n"
-              << "  current_minor:     " << static_cast<unsigned>(report->current_minor) << "\n"
-              << "  current_major:     " << static_cast<unsigned>(report->current_major) << "\n"
-              << "  committed_build:   " << static_cast<unsigned>(report->committed_build) << "\n"
-              << "  committed_minor:   " << static_cast<unsigned>(report->committed_minor) << "\n"
-              << "  committed_major:   " << static_cast<unsigned>(report->committed_major) << "\n"
-              << "  launch_tcb:        "; print_hex(report->launch_tcb.raw, sizeof(report->launch_tcb.raw));
+              << "  current_build:     " << static_cast<unsigned>(tav_snp_report_current_build(report)) << "\n"
+              << "  current_minor:     " << static_cast<unsigned>(tav_snp_report_current_minor(report)) << "\n"
+              << "  current_major:     " << static_cast<unsigned>(tav_snp_report_current_major(report)) << "\n"
+              << "  committed_build:   " << static_cast<unsigned>(tav_snp_report_committed_build(report)) << "\n"
+              << "  committed_minor:   " << static_cast<unsigned>(tav_snp_report_committed_minor(report)) << "\n"
+              << "  committed_major:   " << static_cast<unsigned>(tav_snp_report_committed_major(report)) << "\n"
+              << "  launch_tcb:        "; print_hex(tav_snp_report_launch_tcb(report), TAV_SNP_TCB_VERSION_SIZE);
     std::cout << "\n"
-              << "  signature.r:       "; print_hex(report->signature.r, sizeof(report->signature.r));
+              << "  signature.r:       "; print_hex(tav_snp_report_signature_r(report), TAV_SNP_SIGNATURE_COMPONENT_SIZE);
     std::cout << "\n"
-              << "  signature.s:       "; print_hex(report->signature.s, sizeof(report->signature.s));
+              << "  signature.s:       "; print_hex(tav_snp_report_signature_s(report), TAV_SNP_SIGNATURE_COMPONENT_SIZE);
     std::cout << "\n";
+
+    tav_free_report(report);
 
     return 0;
 }

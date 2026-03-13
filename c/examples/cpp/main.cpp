@@ -71,6 +71,17 @@ int main(int argc, char *argv[]) {
     std::cout << "  version:           " << tav_snp_report_version(report)       << "\n"
               << "  guest_svn:         " << tav_snp_report_guest_svn(report)     << "\n"
               << "  policy:            0x" << std::hex << tav_snp_report_policy(report) << std::dec << "\n"
+              << "    abi_minor:       " << static_cast<unsigned>(tav_snp_report_policy_abi_minor(report)) << "\n"
+              << "    abi_major:       " << static_cast<unsigned>(tav_snp_report_policy_abi_major(report)) << "\n"
+              << "    smt:             " << static_cast<unsigned>(tav_snp_report_policy_smt(report)) << "\n"
+              << "    migrate_ma:      " << static_cast<unsigned>(tav_snp_report_policy_migrate_ma(report)) << "\n"
+              << "    debug:           " << static_cast<unsigned>(tav_snp_report_policy_debug(report)) << "\n"
+              << "    single_socket:   " << static_cast<unsigned>(tav_snp_report_policy_single_socket(report)) << "\n"
+              << "    cxl_allow:       " << static_cast<unsigned>(tav_snp_report_policy_cxl_allow(report)) << "\n"
+              << "    mem_aes_256_xts: " << static_cast<unsigned>(tav_snp_report_policy_mem_aes_256_xts(report)) << "\n"
+              << "    rapl_dis:        " << static_cast<unsigned>(tav_snp_report_policy_rapl_dis(report)) << "\n"
+              << "    ciphertext_hiding_dram: " << static_cast<unsigned>(tav_snp_report_policy_ciphertext_hiding_dram(report)) << "\n"
+              << "    page_swap_disable: " << static_cast<unsigned>(tav_snp_report_policy_page_swap_disable(report)) << "\n"
               << "  family_id:         "; print_hex(tav_snp_report_family_id(report), TAV_SNP_FAMILY_ID_SIZE);
     std::cout << "\n"
               << "  image_id:          "; print_hex(tav_snp_report_image_id(report), TAV_SNP_IMAGE_ID_SIZE);
@@ -81,6 +92,9 @@ int main(int argc, char *argv[]) {
     std::cout << "\n"
               << "  platform_info:     0x" << std::hex << tav_snp_report_platform_info(report) << std::dec << "\n"
               << "  flags:             0x" << std::hex << tav_snp_report_flags(report) << std::dec << "\n"
+              << "    author_key_en:   " << static_cast<unsigned>(tav_snp_report_flags_author_key_en(report)) << "\n"
+              << "    mask_chip_key:   " << static_cast<unsigned>(tav_snp_report_flags_mask_chip_key(report)) << "\n"
+              << "    signing_key:     " << static_cast<unsigned>(tav_snp_report_flags_signing_key(report)) << "\n"
               << "  report_data:       "; print_hex(tav_snp_report_report_data(report), TAV_SNP_REPORT_DATA_SIZE);
     std::cout << "\n"
               << "  measurement:       "; print_hex(tav_snp_report_measurement(report), TAV_SNP_MEASUREMENT_SIZE);

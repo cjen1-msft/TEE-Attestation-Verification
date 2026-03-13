@@ -80,6 +80,15 @@ struct TAVSNPAttestationReport;
 #define TAV_SNP_CHIP_ID_SIZE            64
 #define TAV_SNP_SIGNATURE_COMPONENT_SIZE 72
 
+/* Signing-key selector values returned by tav_snp_report_flags_signing_key(). */
+typedef uint8_t TAVSNPReportSigningKey;
+
+enum {
+    TAV_SNP_REPORT_SIGNING_KEY_VCEK = 0,
+    TAV_SNP_REPORT_SIGNING_KEY_VLEK = 1,
+    TAV_SNP_REPORT_SIGNING_KEY_NONE = 7
+};
+
 /* ----------------------------------------------------------------------- */
 /* FFI verify functions                                                    */
 /* ----------------------------------------------------------------------- */
@@ -135,10 +144,24 @@ void tav_free_report(struct TAVSNPAttestationReport *report);
 uint32_t tav_snp_report_version(const struct TAVSNPAttestationReport *report);
 uint32_t tav_snp_report_guest_svn(const struct TAVSNPAttestationReport *report);
 uint64_t tav_snp_report_policy(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_abi_minor(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_abi_major(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_smt(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_migrate_ma(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_debug(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_single_socket(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_cxl_allow(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_mem_aes_256_xts(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_rapl_dis(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_ciphertext_hiding_dram(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_page_swap_disable(const struct TAVSNPAttestationReport *report);
 uint32_t tav_snp_report_vmpl(const struct TAVSNPAttestationReport *report);
 uint32_t tav_snp_report_signature_algo(const struct TAVSNPAttestationReport *report);
 uint64_t tav_snp_report_platform_info(const struct TAVSNPAttestationReport *report);
 uint32_t tav_snp_report_flags(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_flags_author_key_en(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_flags_mask_chip_key(const struct TAVSNPAttestationReport *report);
+TAVSNPReportSigningKey tav_snp_report_flags_signing_key(const struct TAVSNPAttestationReport *report);
 
 /* ----------------------------------------------------------------------- */
 /* Report accessors – single-byte fields                                   */

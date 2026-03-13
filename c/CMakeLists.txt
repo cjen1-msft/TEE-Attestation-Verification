@@ -28,17 +28,18 @@ set(TAV_STATIC_LIB
 
 separate_arguments(_cargo_features NATIVE_COMMAND "${TAV_CARGO_FEATURES}")
 
-add_custom_command(
-    OUTPUT  "${TAV_STATIC_LIB}"
+# Always invoke cargo build from CMake and let Cargo decide whether the crate
+# is already up to date. This avoids stale static libraries when Rust sources
+# change without a corresponding CMake dependency edge.
+add_custom_target(cargo_build_tee_attestation_verification
     COMMAND cargo build ${CARGO_BUILD_FLAGS}
             --manifest-path "${TAV_CARGO_MANIFEST}"
             --lib
             ${_cargo_features}
+    BYPRODUCTS "${TAV_STATIC_LIB}"
     COMMENT "Building tee-attestation-verification (Rust) …"
     VERBATIM
 )
-
-add_custom_target(cargo_build_tee_attestation_verification DEPENDS "${TAV_STATIC_LIB}")
 
 # ---------------------------------------------------------------------------
 # Imported library target: tee_attestation_verification

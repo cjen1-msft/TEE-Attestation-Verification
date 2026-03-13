@@ -14,7 +14,7 @@ use std::slice;
 use zerocopy::FromBytes;
 
 use crate::crypto::{Certificate, Crypto, CryptoBackend};
-use crate::snp::report::AttestationReport;
+use crate::snp::report::{AttestationReport, SigningKey};
 use crate::snp::verify::{self, ChainVerification, VerificationError};
 
 // ---------------------------------------------------------------------------
@@ -267,33 +267,109 @@ pub unsafe extern "C" fn tav_free_report(report: *mut TAVSNPAttestationReport) {
 
 /// Get the attestation report version.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_version(
-    report: *const TAVSNPAttestationReport,
-) -> u32 {
+pub unsafe extern "C" fn tav_snp_report_version(report: *const TAVSNPAttestationReport) -> u32 {
     (*report).report().version.get()
 }
 
 /// Get the guest SVN (Security Version Number).
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_guest_svn(
-    report: *const TAVSNPAttestationReport,
-) -> u32 {
+pub unsafe extern "C" fn tav_snp_report_guest_svn(report: *const TAVSNPAttestationReport) -> u32 {
     (*report).report().guest_svn.get()
 }
 
 /// Get the guest policy.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_policy(
-    report: *const TAVSNPAttestationReport,
-) -> u64 {
+pub unsafe extern "C" fn tav_snp_report_policy(report: *const TAVSNPAttestationReport) -> u64 {
     (*report).report().policy.get()
+}
+
+/// Get the minimum ABI minor version required by the guest policy.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_abi_minor(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().abi_minor()
+}
+
+/// Get the minimum ABI major version required by the guest policy.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_abi_major(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().abi_major()
+}
+
+/// Get whether SMT is allowed by the guest policy.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_smt(report: *const TAVSNPAttestationReport) -> u8 {
+    (*report).report().policy().smt().into()
+}
+
+/// Get whether migration-agent association is allowed by the guest policy.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_migrate_ma(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().migrate_ma().into()
+}
+
+/// Get whether debugging is allowed by the guest policy.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_debug(report: *const TAVSNPAttestationReport) -> u8 {
+    (*report).report().policy().debug().into()
+}
+
+/// Get whether the guest is restricted to a single socket.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_single_socket(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().single_socket().into()
+}
+
+/// Get whether CXL population with devices or memory is allowed.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_cxl_allow(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().cxl_allow().into()
+}
+
+/// Get whether AES-256-XTS is required for memory encryption.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_mem_aes_256_xts(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().mem_aes_256_xts().into()
+}
+
+/// Get whether the RAPL feature is disabled by the guest policy.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_rapl_dis(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().rapl_dis().into()
+}
+
+/// Get whether DRAM ciphertext hiding must be enabled.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_ciphertext_hiding_dram(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().ciphertext_hiding_dram().into()
+}
+
+/// Get whether guest access to page move commands is disabled.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_policy_page_swap_disable(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().policy().page_swap_disable().into()
 }
 
 /// Get the VMPL for this report.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_vmpl(
-    report: *const TAVSNPAttestationReport,
-) -> u32 {
+pub unsafe extern "C" fn tav_snp_report_vmpl(report: *const TAVSNPAttestationReport) -> u32 {
     (*report).report().vmpl.get()
 }
 
@@ -315,10 +391,37 @@ pub unsafe extern "C" fn tav_snp_report_platform_info(
 
 /// Get the flags field.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_flags(
-    report: *const TAVSNPAttestationReport,
-) -> u32 {
+pub unsafe extern "C" fn tav_snp_report_flags(report: *const TAVSNPAttestationReport) -> u32 {
     (*report).report().flags.get()
+}
+
+/// Get whether the author key digest is present.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_flags_author_key_en(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().flags().author_key_en().into()
+}
+
+/// Get whether the chip ID is masked.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_flags_mask_chip_key(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    (*report).report().flags().mask_chip_key().into()
+}
+
+/// Get the raw signing-key selector from the report flags.
+#[no_mangle]
+pub unsafe extern "C" fn tav_snp_report_flags_signing_key(
+    report: *const TAVSNPAttestationReport,
+) -> u8 {
+    match (*report).report().flags().signing_key() {
+        SigningKey::Vcek => 0,
+        SigningKey::Vlek => 1,
+        SigningKey::None => 7,
+        SigningKey::Reserved(value) => value,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -327,25 +430,19 @@ pub unsafe extern "C" fn tav_snp_report_flags(
 
 /// Get the CPUID Family ID.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_cpuid_fam_id(
-    report: *const TAVSNPAttestationReport,
-) -> u8 {
+pub unsafe extern "C" fn tav_snp_report_cpuid_fam_id(report: *const TAVSNPAttestationReport) -> u8 {
     (*report).report().cpuid_fam_id
 }
 
 /// Get the CPUID Model ID.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_cpuid_mod_id(
-    report: *const TAVSNPAttestationReport,
-) -> u8 {
+pub unsafe extern "C" fn tav_snp_report_cpuid_mod_id(report: *const TAVSNPAttestationReport) -> u8 {
     (*report).report().cpuid_mod_id
 }
 
 /// Get the CPUID Stepping.
 #[no_mangle]
-pub unsafe extern "C" fn tav_snp_report_cpuid_step(
-    report: *const TAVSNPAttestationReport,
-) -> u8 {
+pub unsafe extern "C" fn tav_snp_report_cpuid_step(report: *const TAVSNPAttestationReport) -> u8 {
     (*report).report().cpuid_step
 }
 

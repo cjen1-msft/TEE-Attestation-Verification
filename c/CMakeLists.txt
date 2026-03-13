@@ -60,6 +60,9 @@ if(NOT _has_openssl EQUAL -1)
         OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
-# Rust std requires these for linking, but the actual application does not require them
-set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES
-    pthread dl m)
+# Rust std pulls in extra system libraries on Linux.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Threads REQUIRED)
+    set_property(TARGET tee_attestation_verification APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+        Threads::Threads ${CMAKE_DL_LIBS} m)
+endif()

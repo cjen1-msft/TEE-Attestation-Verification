@@ -63,8 +63,9 @@ verification failed (code 103): Certificate chain error: ...
 ## Linking in your own project
 
 The `c/CMakeLists.txt` creates a `tee_attestation_verification` imported
-library target that carries OpenSSL and system dependencies (pthread, dl, m)
-as transitive `INTERFACE_LINK_LIBRARIES`. In your own CMake project:
+library target that carries OpenSSL and any platform-specific Rust stdlib link
+dependencies as transitive `INTERFACE_LINK_LIBRARIES`. On Linux that includes
+threading, dynamic-loader, and math libraries. In your own CMake project:
 
 ```cmake
 target_link_libraries(my_app PRIVATE tee_attestation_verification)

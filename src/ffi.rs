@@ -6,6 +6,8 @@
 //! Errors are returned as an opaque `TAVError` pointer (NULL means success).
 //! Use [`tav_error_code`] to get the error category, [`tav_error_message`] to
 //! get a human-readable description, and [`tav_free_error`] to release it.
+//! When passing an error output parameter, callers must either pass `NULL` or a
+//! pointer to a `NULL` `TAVError*` slot.
 
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -187,15 +189,19 @@ fn parse_pem(name: &str, pem: &[u8]) -> Result<Certificate, TAVError> {
 /// bytes from `report_ptr`. The caller must keep `report_ptr` alive and
 /// unchanged for as long as the returned handle is used.
 ///
-/// On failure, returns `NULL` and, if `err_out` is non-null, sets `*err_out`
-/// to an opaque error handle. Use [`tav_error_code`], [`tav_error_message`],
-/// and [`tav_free_error`] to inspect and release the error.
+/// On failure, returns `NULL`. If `err_out` is non-null and `*err_out` is NULL
+/// on entry, sets `*err_out` to an opaque error handle. Use
+/// [`tav_error_code`], [`tav_error_message`], and [`tav_free_error`] to inspect
+/// and release the error.
 ///
 /// # Safety
 /// All pointer/length pairs must be valid readable memory.
 /// `err_out` may be NULL if the caller does not need detailed error
-/// information. If non-null, `*err_out` must be NULL on entry; it is set to
-/// NULL on success and to an allocated [`TAVError`] on failure.
+/// information. If non-null, `*err_out` must be NULL on entry. Passing a
+/// non-null `err_out` whose pointee is already non-null is an invalid argument.
+/// On success, `*err_out` remains NULL. On failure, `*err_out` is set to an
+/// allocated [`TAVError`] only when it was NULL on entry; otherwise it is left
+/// unchanged.
 #[no_mangle]
 pub unsafe extern "C" fn tav_snp_verify_attestation(
     report_ptr: *const u8,
@@ -209,6 +215,10 @@ pub unsafe extern "C" fn tav_snp_verify_attestation(
     err_out: *mut *mut TAVError,
 ) -> *mut TAVSNPAttestationReport {
     if !err_out.is_null() {
+        if !(*err_out).is_null() {
+            return std::ptr::null_mut();
+        }
+
         *err_out = std::ptr::null_mut();
     }
 
@@ -627,4 +637,92 @@ pub unsafe extern "C" fn tav_snp_report_signature_s(
     report: *const TAVSNPAttestationReport,
 ) -> *const u8 {
     (*report).report().signature.s.as_ptr()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CStr;
+    use std::ptr;
+
+    const MILAN_ATTESTATION: &[u8] =
+        include_bytes!("../tests/test_data/milan_attestation_report.bin");
+    const MILAN_ASK: &[u8] = include_bytes!("../tests/test_data/milan_ask.pem");
+    const MILAN_VCEK: &[u8] = include_bytes!("../tests/test_data/milan_vcek.pem");
+    const MILAN_ARK: &[u8] = include_bytes!("pinned_arks/milan_ark.pem");
+
+    fn verify_with_err_out(err_out: *mut *mut TAVError) -> *mut TAVSNPAttestationReport {
+        unsafe {
+            tav_snp_verify_attestation(
+                MILAN_ATTESTATION.as_ptr(),
+                MILAN_ATTESTATION.len(),
+                MILAN_ARK.as_ptr(),
+                MILAN_ARK.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                err_out,
+            )
+        }
+    }
+
+    #[test]
+    fn ffi_accepts_null_err_out() {
+        let report = verify_with_err_out(ptr::null_mut());
+
+        assert!(!report.is_null());
+
+        unsafe {
+            tav_free_report(report);
+        }
+    }
+
+    #[test]
+    fn ffi_writes_error_when_err_out_points_to_null() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            tav_snp_verify_attestation(
+                MILAN_ATTESTATION.as_ptr(),
+                MILAN_ATTESTATION.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidRootCertificate as u32
+            );
+            assert!(CStr::from_ptr(tav_error_message(error))
+                .to_str()
+                .unwrap()
+                .contains("Invalid root certificate"));
+            tav_free_error(error);
+        }
+    }
+
+    #[test]
+    fn ffi_rejects_non_null_err_out_pointee_without_overwriting_it() {
+        let sentinel = Box::into_raw(Box::new([0xAB_u8; 8])) as *mut TAVError;
+        let mut error = sentinel;
+
+        let report = verify_with_err_out(&mut error);
+
+        assert!(report.is_null());
+        assert_eq!(error, sentinel);
+
+        unsafe {
+            drop(Box::from_raw(sentinel as *mut [u8; 8]));
+        }
+    }
 }

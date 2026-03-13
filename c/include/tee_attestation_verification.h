@@ -105,17 +105,21 @@ enum {
  * @param ask_pem_len   Length of the ASK PEM buffer in bytes.
  * @param vcek_pem_ptr  Pointer to the PEM-encoded VCEK certificate.
  * @param vcek_pem_len  Length of the VCEK PEM buffer in bytes.
- * @param err_out       Optional error output. If non-NULL, `*err_out` must be
- *                      NULL on entry; it is set to NULL on success and set to
- *                      an opaque error handle on failure. Any returned error
- *                      handle must be freed with tav_free_error().
+ * @param err_out       Optional error output. Pass either NULL or a pointer to
+ *                      a NULL TAVError* slot. If non-NULL, `*err_out` must be
+ *                      NULL on entry. On success it remains NULL; on failure it
+ *                      is set to an opaque error handle only when it was NULL
+ *                      on entry. Any returned error handle must be freed with
+ *                      tav_free_error(). Passing a non-NULL `err_out` whose
+ *                      pointee is already non-NULL is invalid and leaves the
+ *                      existing pointee unchanged.
  *
  * @return On success, an opaque report handle that must be freed with
  *         tav_free_report(). The returned handle borrows the attestation
  *         report bytes from report_ptr, so the caller must keep report_ptr
  *         alive and unchanged while using the handle. Use tav_snp_report_*()
- *         accessors to read fields.
- *         On failure, returns NULL and, if err_out is non-NULL, sets *err_out.
+ *         accessors to read fields. On failure, returns NULL. If err_out is
+ *         non-NULL and *err_out is NULL on entry, sets *err_out.
  */
 struct TAVSNPAttestationReport *tav_snp_verify_attestation(
     const uint8_t        *report_ptr,

@@ -17,6 +17,7 @@ pub use snp::report::AttestationReport;
 
 #[cfg(any(feature = "online", target_arch = "wasm32"))]
 mod certificate_chain;
+#[cfg(not(target_family = "wasm"))]
 mod ffi;
 #[cfg(any(feature = "online", target_arch = "wasm32"))]
 mod kds;

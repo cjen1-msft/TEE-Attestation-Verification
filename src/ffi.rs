@@ -395,7 +395,7 @@ pub unsafe extern "C" fn tav_snp_report_flags(report: *const TAVSNPAttestationRe
     (*report).report().flags.get()
 }
 
-/// Get whether the author key digest is present.
+/// Get the raw AUTHOR_KEY_EN flag bit.
 #[no_mangle]
 pub unsafe extern "C" fn tav_snp_report_flags_author_key_en(
     report: *const TAVSNPAttestationReport,

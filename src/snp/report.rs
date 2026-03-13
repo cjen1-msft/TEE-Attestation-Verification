@@ -236,8 +236,8 @@ pub struct AttestationReport {
     /// - Bits 4:2 (SIGNING_KEY): Encodes the key used to sign this report
     ///   (0=VCEK, 1=VLEK, 2-6=Reserved, 7=None)
     /// - Bit 1 (MASK_CHIP_KEY): The value of MaskChipKey
-    /// - Bit 0 (AUTHOR_KEY_EN): Indicates that the digest of the author key is present
-    ///   in AUTHOR_KEY_DIGEST. Set to the value of GCTX.AuthorKeyEn.
+    /// - Bit 0 (AUTHOR_KEY_EN): Raw AUTHOR_KEY_EN bit from the report.
+    ///   Set to the value of GCTX.AuthorKeyEn.
     #[cfg_attr(feature = "serde", serde(with = "serde_wrappers::le_u32"))]
     pub flags: le::U32, // 0x048
 
@@ -260,8 +260,7 @@ pub struct AttestationReport {
     #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     pub id_key_digest: [u8; 48], // 0x0E0
 
-    /// SHA-384 digest of the Author public key that certified the ID key, if provided
-    /// in SNP_LAUNCH_FINISH. Zeroes if AUTHOR_KEY_EN is 1.
+    /// Raw AUTHOR_KEY_DIGEST field from the report.
     #[cfg_attr(feature = "serde", serde(with = "serde_big_array::BigArray"))]
     pub author_key_digest: [u8; 48], // 0x110
 

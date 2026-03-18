@@ -27,7 +27,7 @@ use crate::snp::verify::{self, ChainVerification, VerificationError};
 ///
 /// Numbering convention:
 /// - [1]: FFI/input parsing failures
-/// - [101:105]: attestation verification failures (mapped from SevVerificationError)
+/// - [101:105]: attestation verification failures (mapped from VerificationError)
 macro_rules! ffi_error_codes {
     ($name:ident, [$(($variant:ident, $c_name:literal, $value:expr)),+ $(,)?]) => {
         #[repr(u32)]
@@ -205,6 +205,20 @@ fn parse_pem(name: &str, pem: &[u8]) -> Result<Certificate, TAVError> {
         .map_err(|e| TAVError::invalid_argument(format!("Failed to parse {name} PEM: {e}")))
 }
 
+unsafe fn input_bytes<'a>(name: &str, ptr: *const u8, len: usize) -> Result<&'a [u8], TAVError> {
+    if ptr.is_null() {
+        if len == 0 {
+            Ok(&[])
+        } else {
+            Err(TAVError::invalid_argument(format!(
+                "{name} pointer is NULL but length is {len}"
+            )))
+        }
+    } else {
+        Ok(slice::from_raw_parts(ptr, len))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Verification entry point
 // ---------------------------------------------------------------------------
@@ -223,7 +237,8 @@ fn parse_pem(name: &str, pem: &[u8]) -> Result<Certificate, TAVError> {
 /// and release the error.
 ///
 /// # Safety
-/// All pointer/length pairs must be valid readable memory.
+/// Each pointer/length pair must either identify valid readable memory or use a
+/// NULL pointer with length 0, which is treated as an empty input buffer.
 /// `err_out` may be NULL if the caller does not need detailed error
 /// information. If non-null, `*err_out` must be NULL on entry. Passing a
 /// non-null `err_out` whose pointee is already non-null is an invalid argument.
@@ -251,11 +266,11 @@ pub unsafe extern "C" fn tav_snp_verify_attestation(
     }
 
     let inner = || -> Result<*const AttestationReport, TAVError> {
-        let report_bytes = slice::from_raw_parts(report_ptr, report_len);
+        let report_bytes = input_bytes("report", report_ptr, report_len)?;
         let report = parse_report(report_bytes)?;
-        let ark = parse_pem("ARK", slice::from_raw_parts(ark_pem_ptr, ark_pem_len))?;
-        let ask = parse_pem("ASK", slice::from_raw_parts(ask_pem_ptr, ask_pem_len))?;
-        let vcek = parse_pem("VCEK", slice::from_raw_parts(vcek_pem_ptr, vcek_pem_len))?;
+        let ark = parse_pem("ARK", input_bytes("ARK PEM", ark_pem_ptr, ark_pem_len)?)?;
+        let ask = parse_pem("ASK", input_bytes("ASK PEM", ask_pem_ptr, ask_pem_len)?)?;
+        let vcek = parse_pem("VCEK", input_bytes("VCEK PEM", vcek_pem_ptr, vcek_pem_len)?)?;
         verify::verify_attestation(
             report,
             &vcek,
@@ -734,6 +749,30 @@ mod tests {
         }
     }
 
+    unsafe fn verify_with_inputs(
+        report_ptr: *const u8,
+        report_len: usize,
+        ark_pem_ptr: *const u8,
+        ark_pem_len: usize,
+        ask_pem_ptr: *const u8,
+        ask_pem_len: usize,
+        vcek_pem_ptr: *const u8,
+        vcek_pem_len: usize,
+        err_out: *mut *mut TAVError,
+    ) -> *mut TAVSNPAttestationReport {
+        tav_snp_verify_attestation(
+            report_ptr,
+            report_len,
+            ark_pem_ptr,
+            ark_pem_len,
+            ask_pem_ptr,
+            ask_pem_len,
+            vcek_pem_ptr,
+            vcek_pem_len,
+            err_out,
+        )
+    }
+
     #[test]
     fn ffi_accepts_null_err_out() {
         let report = verify_with_err_out(ptr::null_mut());
@@ -801,5 +840,206 @@ mod tests {
         let c_codes = c_header_error_codes();
 
         assert_eq!(c_codes, rust_codes);
+    }
+
+    #[test]
+    fn ffi_rejects_null_report_pointer_with_nonzero_length() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            verify_with_inputs(
+                ptr::null(),
+                MILAN_ATTESTATION.len(),
+                MILAN_ARK.as_ptr(),
+                MILAN_ARK.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidArgument as u32
+            );
+            assert_eq!(
+                CStr::from_ptr(tav_error_message(error)).to_str().unwrap(),
+                "report pointer is NULL but length is 1184"
+            );
+            tav_free_error(error);
+        }
+    }
+
+    #[test]
+    fn ffi_rejects_null_ark_pointer_with_nonzero_length() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            verify_with_inputs(
+                MILAN_ATTESTATION.as_ptr(),
+                MILAN_ATTESTATION.len(),
+                ptr::null(),
+                MILAN_ARK.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidArgument as u32
+            );
+            assert_eq!(
+                CStr::from_ptr(tav_error_message(error)).to_str().unwrap(),
+                format!("ARK PEM pointer is NULL but length is {}", MILAN_ARK.len())
+            );
+            tav_free_error(error);
+        }
+    }
+
+    #[test]
+    fn ffi_rejects_null_ask_pointer_with_nonzero_length() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            verify_with_inputs(
+                MILAN_ATTESTATION.as_ptr(),
+                MILAN_ATTESTATION.len(),
+                MILAN_ARK.as_ptr(),
+                MILAN_ARK.len(),
+                ptr::null(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidArgument as u32
+            );
+            assert_eq!(
+                CStr::from_ptr(tav_error_message(error)).to_str().unwrap(),
+                format!("ASK PEM pointer is NULL but length is {}", MILAN_ASK.len())
+            );
+            tav_free_error(error);
+        }
+    }
+
+    #[test]
+    fn ffi_rejects_null_vcek_pointer_with_nonzero_length() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            verify_with_inputs(
+                MILAN_ATTESTATION.as_ptr(),
+                MILAN_ATTESTATION.len(),
+                MILAN_ARK.as_ptr(),
+                MILAN_ARK.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                ptr::null(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidArgument as u32
+            );
+            assert_eq!(
+                CStr::from_ptr(tav_error_message(error)).to_str().unwrap(),
+                format!(
+                    "VCEK PEM pointer is NULL but length is {}",
+                    MILAN_VCEK.len()
+                )
+            );
+            tav_free_error(error);
+        }
+    }
+
+    #[test]
+    fn ffi_accepts_null_zero_length_report_input_and_returns_parse_error() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            verify_with_inputs(
+                ptr::null(),
+                0,
+                MILAN_ARK.as_ptr(),
+                MILAN_ARK.len(),
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidArgument as u32
+            );
+            assert_eq!(
+                CStr::from_ptr(tav_error_message(error)).to_str().unwrap(),
+                "Invalid attestation report: expected 1184 bytes, got 0"
+            );
+            tav_free_error(error);
+        }
+    }
+
+    #[test]
+    fn ffi_accepts_null_zero_length_pem_input_and_returns_parse_error() {
+        let mut error = ptr::null_mut();
+        let report = unsafe {
+            verify_with_inputs(
+                MILAN_ATTESTATION.as_ptr(),
+                MILAN_ATTESTATION.len(),
+                ptr::null(),
+                0,
+                MILAN_ASK.as_ptr(),
+                MILAN_ASK.len(),
+                MILAN_VCEK.as_ptr(),
+                MILAN_VCEK.len(),
+                &mut error,
+            )
+        };
+
+        assert!(report.is_null());
+        assert!(!error.is_null());
+
+        unsafe {
+            assert_eq!(
+                tav_error_code(error) as u32,
+                TAVErrorCode::InvalidArgument as u32
+            );
+            assert!(CStr::from_ptr(tav_error_message(error))
+                .to_str()
+                .unwrap()
+                .starts_with("Failed to parse ARK PEM:"));
+            tav_free_error(error);
+        }
     }
 }

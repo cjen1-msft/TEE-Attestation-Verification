@@ -198,7 +198,7 @@ pub struct Signature {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[repr(C)]
 pub struct AttestationReport {
-    /// Version number of this attestation report. Set to 0x05 for this specification.
+    /// Version number of this attestation report as encoded in the report bytes.
     #[cfg_attr(feature = "serde", serde(with = "serde_wrappers::le_u32"))]
     pub version: le::U32, // 0x000
 

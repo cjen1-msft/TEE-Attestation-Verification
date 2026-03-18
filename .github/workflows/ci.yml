@@ -106,6 +106,9 @@ jobs:
         run: |
           rustup update stable && rustup default stable
 
+      - name: Run FFI unit tests
+        run: cargo test --lib --no-default-features --features "crypto_openssl" ffi -- --nocapture
+
       - name: Build C++ example
         run: |
           cd c/examples/cpp

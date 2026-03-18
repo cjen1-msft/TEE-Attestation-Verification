@@ -4,7 +4,8 @@
  * Pure C header for TEE Attestation Verification library.
  *
  * Link against the static library (libtee_attestation_verification_lib.a)
- * and system dependencies: -lpthread -ldl -lm
+ * and its native dependencies. The default CMake integration builds with
+ * OpenSSL and also links pthread, dl, and m on Linux.
  */
 
 #ifndef TEE_ATTESTATION_VERIFICATION_H
@@ -113,6 +114,10 @@ enum {
  *                      tav_free_error(). Passing a non-NULL `err_out` whose
  *                      pointee is already non-NULL is invalid and leaves the
  *                      existing pointee unchanged.
+ *
+ *                      Each pointer/length pair must either point to readable
+ *                      memory or use a NULL pointer with length 0, which is
+ *                      treated as an empty input buffer.
  *
  * @return On success, an opaque report handle that must be freed with
  *         tav_free_report(). The returned handle borrows the attestation

@@ -28,25 +28,53 @@ use crate::snp::verify::{self, ChainVerification, VerificationError};
 /// Numbering convention:
 /// - [1]: FFI/input parsing failures
 /// - [101:105]: attestation verification failures (mapped from SevVerificationError)
-#[repr(u32)]
-#[derive(Debug, Clone, Copy)]
-pub enum TAVErrorCode {
-    /// Invalid arguments passed to the function (bad report, bad PEM, etc.).
-    InvalidArgument = 1,
-    /// Invalid argument when retrieving an error message (e.g., null pointer).
-    /// Note: this will never be returned otherwise
-    ErrorCodeIsNull = 2,
-    /// Processor model is unsupported.
-    UnsupportedProcessor = 101,
-    /// The provided ARK does not match the pinned root certificate.
-    InvalidRootCertificate = 102,
-    /// Certificate chain verification failed (ARK -> ASK -> VCEK).
-    CertificateChainError = 103,
-    /// Attestation report signature verification failed.
-    SignatureVerificationError = 104,
-    /// TCB values in certificate do not match the report.
-    TcbVerificationError = 105,
+macro_rules! ffi_error_codes {
+    ($name:ident, [$(($variant:ident, $c_name:literal, $value:expr)),+ $(,)?]) => {
+        #[repr(u32)]
+        #[derive(Debug, Clone, Copy)]
+        pub enum $name {
+            $(
+                $variant = $value,
+            )+
+        }
+
+        #[cfg(test)]
+        impl $name {
+            fn iter() -> impl Iterator<Item = Self> {
+                [$(Self::$variant),+].into_iter()
+            }
+
+            fn c_constant_name(self) -> &'static str {
+                match self {
+                    $(
+                        Self::$variant => $c_name,
+                    )+
+                }
+            }
+        }
+    };
 }
+
+ffi_error_codes!(
+    TAVErrorCode,
+    [
+        (InvalidArgument, "TAV_ERROR_INVALID_ARGUMENT", 1),
+        (ErrorCodeIsNull, "TAV_ERROR_ERROR_CODE_IS_NULL", 2),
+        (UnsupportedProcessor, "TAV_ERROR_UNSUPPORTED_PROCESSOR", 101),
+        (
+            InvalidRootCertificate,
+            "TAV_ERROR_INVALID_ROOT_CERTIFICATE",
+            102
+        ),
+        (CertificateChainError, "TAV_ERROR_CERTIFICATE_CHAIN", 103),
+        (
+            SignatureVerificationError,
+            "TAV_ERROR_SIGNATURE_VERIFICATION",
+            104
+        ),
+        (TcbVerificationError, "TAV_ERROR_TCB_VERIFICATION", 105)
+    ]
+);
 
 /// Structured, heap-allocated error returned across FFI.
 pub struct TAVError {
@@ -642,6 +670,7 @@ pub unsafe extern "C" fn tav_snp_report_signature_s(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::ffi::CStr;
     use std::ptr;
 
@@ -650,6 +679,44 @@ mod tests {
     const MILAN_ASK: &[u8] = include_bytes!("../tests/test_data/milan_ask.pem");
     const MILAN_VCEK: &[u8] = include_bytes!("../tests/test_data/milan_vcek.pem");
     const MILAN_ARK: &[u8] = include_bytes!("pinned_arks/milan_ark.pem");
+    const C_HEADER: &str = include_str!("../c/include/tee_attestation_verification.h");
+
+    fn c_header_error_codes() -> BTreeMap<String, u32> {
+        let typedef_marker = "typedef uint32_t TAVErrorCode;";
+        let marker_index = C_HEADER
+            .find(typedef_marker)
+            .expect("TAVErrorCode typedef should exist in C header");
+        let enum_start = C_HEADER[marker_index..]
+            .find("enum {")
+            .map(|offset| marker_index + offset)
+            .expect("TAVErrorCode enum should follow typedef");
+        let enum_body_start = enum_start + "enum {".len();
+        let enum_end = C_HEADER[enum_body_start..]
+            .find("};")
+            .map(|offset| enum_body_start + offset)
+            .expect("TAVErrorCode enum should terminate");
+
+        C_HEADER[enum_body_start..enum_end]
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim().trim_end_matches(',');
+                if trimmed.is_empty() {
+                    return None;
+                }
+
+                let (name, value) = trimmed
+                    .split_once('=')
+                    .expect("Each TAVErrorCode C constant should have an explicit value");
+                Some((
+                    name.trim().to_string(),
+                    value
+                        .trim()
+                        .parse::<u32>()
+                        .expect("Each TAVErrorCode C constant value should parse as u32"),
+                ))
+            })
+            .collect()
+    }
 
     fn verify_with_err_out(err_out: *mut *mut TAVError) -> *mut TAVSNPAttestationReport {
         unsafe {
@@ -724,5 +791,15 @@ mod tests {
         unsafe {
             drop(Box::from_raw(sentinel as *mut [u8; 8]));
         }
+    }
+
+    #[test]
+    fn ffi_error_codes_match_c_header_constants() {
+        let rust_codes = TAVErrorCode::iter()
+            .map(|code| (code.c_constant_name().to_string(), code as u32))
+            .collect::<BTreeMap<_, _>>();
+        let c_codes = c_header_error_codes();
+
+        assert_eq!(c_codes, rust_codes);
     }
 }

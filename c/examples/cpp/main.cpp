@@ -17,19 +17,19 @@
 #include "tee_attestation_verification.h"
 
 struct TAVErrorDeleter {
-    void operator()(struct TAVError *err) const {
+    void operator()(TAVError *err) const {
         tav_free_error(err);
     }
 };
 
 struct TAVReportDeleter {
-    void operator()(struct TAVSNPAttestationReport *report) const {
+    void operator()(TAVSNPAttestationReport *report) const {
         tav_free_report(report);
     }
 };
 
-using TAVErrorPtr = std::unique_ptr<struct TAVError, TAVErrorDeleter>;
-using TAVReportPtr = std::unique_ptr<struct TAVSNPAttestationReport, TAVReportDeleter>;
+using TAVErrorPtr = std::unique_ptr<TAVError, TAVErrorDeleter>;
+using TAVReportPtr = std::unique_ptr<TAVSNPAttestationReport, TAVReportDeleter>;
 
 struct FileReadResult {
     std::vector<uint8_t> bytes;
@@ -113,8 +113,8 @@ int main(int argc, char *argv[]) {
     std::vector<uint8_t> ask = std::move(ask_result.bytes);
     std::vector<uint8_t> vcek = std::move(vcek_result.bytes);
 
-    struct TAVError *raw_err = nullptr;
-    struct TAVSNPAttestationReport *raw_report = tav_snp_verify_attestation(
+    TAVError *raw_err = nullptr;
+    TAVSNPAttestationReport *raw_report = tav_snp_verify_attestation(
         report_bytes.data(), report_bytes.size(),
         ark.data(),  ark.size(),
         ask.data(),  ask.size(),

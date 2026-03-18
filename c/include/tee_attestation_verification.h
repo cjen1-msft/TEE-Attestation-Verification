@@ -42,19 +42,19 @@ enum {
 /** Opaque error handle.
  *  Must be freed with tav_free_error() when non-null.
  */
-struct TAVError;
+typedef struct TAVError TAVError;
 
 /** Get the error category code from an error handle. */
-TAVErrorCode tav_error_code(const struct TAVError *err);
+TAVErrorCode tav_error_code(const TAVError *err);
 
 /** Get a NUL-terminated error message from an error handle.
  *  The returned string is valid until tav_free_error() is called.
  *  Do NOT free the returned pointer. */
-const char *tav_error_message(const struct TAVError *err);
+const char *tav_error_message(const TAVError *err);
 
 /** Free an error returned by tav_snp_verify_attestation().
  *  Safe to call with NULL (no-op). */
-void tav_free_error(struct TAVError *err);
+void tav_free_error(TAVError *err);
 
 
 /* ----------------------------------------------------------------------- */
@@ -64,7 +64,7 @@ void tav_free_error(struct TAVError *err);
 /** Opaque handle to a verified SNP attestation report.
  *  Returned by tav_snp_verify_attestation().  Must be freed with
  *  tav_free_report(). */
-struct TAVSNPAttestationReport;
+typedef struct TAVSNPAttestationReport TAVSNPAttestationReport;
 
 /* Field sizes for byte-array accessors. */
 #define TAV_SNP_FAMILY_ID_SIZE          16
@@ -121,21 +121,21 @@ enum {
  *         accessors to read fields. On failure, returns NULL. If err_out is
  *         non-NULL and *err_out is NULL on entry, sets *err_out.
  */
-struct TAVSNPAttestationReport *tav_snp_verify_attestation(
-    const uint8_t        *report_ptr,
-    size_t                report_len,
-    const uint8_t        *ark_pem_ptr,
-    size_t                ark_pem_len,
-    const uint8_t        *ask_pem_ptr,
-    size_t                ask_pem_len,
-    const uint8_t        *vcek_pem_ptr,
-    size_t                vcek_pem_len,
-    struct TAVError     **err_out
+TAVSNPAttestationReport *tav_snp_verify_attestation(
+    const uint8_t           *report_ptr,
+    size_t                   report_len,
+    const uint8_t           *ark_pem_ptr,
+    size_t                   ark_pem_len,
+    const uint8_t           *ask_pem_ptr,
+    size_t                   ask_pem_len,
+    const uint8_t           *vcek_pem_ptr,
+    size_t                   vcek_pem_len,
+    TAVError               **err_out
 );
 
 /** Free a report returned by tav_snp_verify_attestation().
  *  Safe to call with NULL (no-op). */
-void tav_free_report(struct TAVSNPAttestationReport *report);
+void tav_free_report(TAVSNPAttestationReport *report);
 
 /* ----------------------------------------------------------------------- */
 /* Report accessors – scalar fields (native byte order)                    */
@@ -145,41 +145,41 @@ void tav_free_report(struct TAVSNPAttestationReport *report);
 /* report_ptr, the original report buffer must remain alive and unchanged    */
 /* until tav_free_report() is called.                                        */
 
-uint32_t tav_snp_report_version(const struct TAVSNPAttestationReport *report);
-uint32_t tav_snp_report_guest_svn(const struct TAVSNPAttestationReport *report);
-uint64_t tav_snp_report_policy(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_abi_minor(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_abi_major(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_smt(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_migrate_ma(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_debug(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_single_socket(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_cxl_allow(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_mem_aes_256_xts(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_rapl_dis(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_ciphertext_hiding_dram(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_policy_page_swap_disable(const struct TAVSNPAttestationReport *report);
-uint32_t tav_snp_report_vmpl(const struct TAVSNPAttestationReport *report);
-uint32_t tav_snp_report_signature_algo(const struct TAVSNPAttestationReport *report);
-uint64_t tav_snp_report_platform_info(const struct TAVSNPAttestationReport *report);
-uint32_t tav_snp_report_flags(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_flags_author_key_en(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_flags_mask_chip_key(const struct TAVSNPAttestationReport *report);
-TAVSNPReportSigningKey tav_snp_report_flags_signing_key(const struct TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_version(const TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_guest_svn(const TAVSNPAttestationReport *report);
+uint64_t tav_snp_report_policy(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_abi_minor(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_abi_major(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_smt(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_migrate_ma(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_debug(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_single_socket(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_cxl_allow(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_mem_aes_256_xts(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_rapl_dis(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_ciphertext_hiding_dram(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_policy_page_swap_disable(const TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_vmpl(const TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_signature_algo(const TAVSNPAttestationReport *report);
+uint64_t tav_snp_report_platform_info(const TAVSNPAttestationReport *report);
+uint32_t tav_snp_report_flags(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_flags_author_key_en(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_flags_mask_chip_key(const TAVSNPAttestationReport *report);
+TAVSNPReportSigningKey tav_snp_report_flags_signing_key(const TAVSNPAttestationReport *report);
 
 /* ----------------------------------------------------------------------- */
 /* Report accessors – single-byte fields                                   */
 /* ----------------------------------------------------------------------- */
 
-uint8_t tav_snp_report_cpuid_fam_id(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_cpuid_mod_id(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_cpuid_step(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_current_build(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_current_minor(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_current_major(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_committed_build(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_committed_minor(const struct TAVSNPAttestationReport *report);
-uint8_t tav_snp_report_committed_major(const struct TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_cpuid_fam_id(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_cpuid_mod_id(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_cpuid_step(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_current_build(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_current_minor(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_current_major(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_committed_build(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_committed_minor(const TAVSNPAttestationReport *report);
+uint8_t tav_snp_report_committed_major(const TAVSNPAttestationReport *report);
 
 /* ----------------------------------------------------------------------- */
 /* Report accessors – byte-array fields                                    */
@@ -187,22 +187,22 @@ uint8_t tav_snp_report_committed_major(const struct TAVSNPAttestationReport *rep
 /* Returned pointers borrow from the report handle and are valid until      */
 /* tav_free_report() is called.  See TAV_SNP_*_SIZE defines for lengths.    */
 
-const uint8_t *tav_snp_report_family_id(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_image_id(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_platform_version(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_report_data(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_measurement(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_host_data(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_id_key_digest(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_author_key_digest(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_report_id(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_report_id_ma(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_reported_tcb(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_chip_id(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_committed_tcb(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_launch_tcb(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_signature_r(const struct TAVSNPAttestationReport *report);
-const uint8_t *tav_snp_report_signature_s(const struct TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_family_id(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_image_id(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_platform_version(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_report_data(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_measurement(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_host_data(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_id_key_digest(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_author_key_digest(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_report_id(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_report_id_ma(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_reported_tcb(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_chip_id(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_committed_tcb(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_launch_tcb(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_signature_r(const TAVSNPAttestationReport *report);
+const uint8_t *tav_snp_report_signature_s(const TAVSNPAttestationReport *report);
 
 #ifdef __cplusplus
 } /* extern "C" */

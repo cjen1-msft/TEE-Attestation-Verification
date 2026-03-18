@@ -197,6 +197,9 @@ const uint8_t *tav_snp_report_id_key_digest(const TAVSNPAttestationReport *repor
 const uint8_t *tav_snp_report_author_key_digest(const TAVSNPAttestationReport *report);
 const uint8_t *tav_snp_report_report_id(const TAVSNPAttestationReport *report);
 const uint8_t *tav_snp_report_report_id_ma(const TAVSNPAttestationReport *report);
+/* See AMD publication 56860: Table 3 for Turin, Table 4 for Milan and Genoa.
+ * https://www.amd.com/content/dam/amd/en/documents/developer/56860.pdf
+ */
 const uint8_t *tav_snp_report_reported_tcb(const TAVSNPAttestationReport *report);
 const uint8_t *tav_snp_report_chip_id(const TAVSNPAttestationReport *report);
 const uint8_t *tav_snp_report_committed_tcb(const TAVSNPAttestationReport *report);

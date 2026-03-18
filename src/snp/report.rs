@@ -160,6 +160,10 @@ pub struct TcbVersionTurin {
     pub microcode: u8,
 }
 
+/// Raw SNP Trusted Compute Base (TCB) version bytes.
+///
+/// See AMD publication 56860: Table 3 for Turin, Table 4 for Milan and Genoa.
+/// https://www.amd.com/content/dam/amd/en/documents/developer/56860.pdf
 #[derive(Debug, Clone, Copy, IntoBytes, FromBytes, Default, Immutable)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[repr(C)]

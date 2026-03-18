@@ -7,7 +7,6 @@ project(tee_attestation_verification LANGUAGES C CXX)
 get_filename_component(_crate_root "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(TAV_CARGO_MANIFEST "${_crate_root}/Cargo.toml")
 
-# Cargo features – defaults include crypto_pure_rust + serde.
 # Set TAV_CARGO_FEATURES before including this file to override.
 if(NOT DEFINED TAV_CARGO_FEATURES)
     set(TAV_CARGO_FEATURES "--features=crypto_openssl --no-default-features")

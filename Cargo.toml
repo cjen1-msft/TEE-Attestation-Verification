@@ -14,8 +14,8 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [features]
-default = ["crypto_pure_rust", "serde", "online"]
-# If both enabled, defaults to crypto_pure_rust but expose the crypto_openssl module
+default = ["crypto_openssl"]
+# By default, the build uses crypto_openssl; enable crypto_pure_rust to use the pure Rust backend instead.
 crypto_openssl = ["dep:openssl"]
 crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa", "dep:sha2"]
 serde = ["dep:serde", "dep:serde-big-array", "dep:serde_json"]

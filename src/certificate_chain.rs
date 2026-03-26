@@ -4,9 +4,13 @@
 #[cfg(not(any(feature = "online", target_arch = "wasm32")))]
 compile_error!("certificate_chain module requires either the 'online' feature or wasm32 target");
 
-use crate::crypto::verifier::Sync as Verifier;
 use crate::crypto::Certificate;
+#[cfg(sync_crypto)]
+use crate::crypto::verifier::Sync as SyncVerifier;
+#[cfg(async_crypto)]
+use crate::crypto::verifier::Async as AsyncVerifier;
 use crate::kds::KdsFetcher;
+#[cfg(sync_crypto)]
 use crate::pinned_arks;
 use crate::{snp, AttestationReport};
 use log::info;
@@ -65,6 +69,7 @@ impl AmdCertificates {
     ///
     /// # Returns
     /// A verified `AmdCertificates` instance, or an error if chain verification fails.
+    #[cfg(sync_crypto)]
     pub fn from_certs(
         attestation_report: &AttestationReport,
         ask: Certificate,
@@ -80,11 +85,11 @@ impl AmdCertificates {
         let ark = pinned_arks::get_ark(processor_model)?;
 
         // Verify chain: ARK signs ASK
-        ark.verify(&ask)
+        SyncVerifier::verify(&ark, &ask)
             .map_err(|e| format!("Failed to verify ASK signature against pinned ARK: {}", e))?;
 
         // Verify chain: ASK signs VCEK
-        ask.verify(&vcek)
+        SyncVerifier::verify(&ask, &vcek)
             .map_err(|e| format!("Failed to verify VCEK signature against ASK: {}", e))?;
 
         info!(
@@ -113,6 +118,7 @@ impl AmdCertificates {
     /// Get the VCEK certificate that was provided during construction (for offline verification).
     ///
     /// This method is intended for use with instances created via `from_certs`.
+    #[cfg(sync_crypto)]
     pub fn get_vcek_sync(
         &self,
         processor_model: snp::model::Generation,
@@ -148,7 +154,8 @@ impl AmdCertificates {
             .await
             .map_err(|e| format!("Error fetching chain: {}", e))?;
 
-        ark.verify(&ask)
+        verify_certificate_signature_async(&ark, &ask)
+            .await
             .map_err(|e| format!("Failed to verify ASK signature: {}", e))?;
 
         let chain = Chain { ark, ask };
@@ -180,9 +187,8 @@ impl AmdCertificates {
 
             // Verify that VCEK is signed by ASK
             let chain = self.get_chain(processor_model).await?;
-            chain
-                .ask
-                .verify(&vcek)
+            verify_certificate_signature_async(&chain.ask, &vcek)
+                .await
                 .map_err(|e| format!("Failed to verify VCEK signature: {}", e))?;
 
             info!(
@@ -207,6 +213,14 @@ impl AmdCertificates {
         );
         self.vcek_cache.contains_key(&cache_key)
     }
+}
+
+#[cfg(async_crypto)]
+async fn verify_certificate_signature_async(
+    issuer: &Certificate,
+    subject: &Certificate,
+) -> Result<(), Box<dyn std::error::Error>> {
+    AsyncVerifier::verify(issuer, subject).await
 }
 
 /// Trait for fetching AMD certificates from a certificate source

@@ -17,6 +17,7 @@ path = "src/lib.rs"
 # At least one crypto backend must be enabled.
 crypto_openssl = ["dep:foreign-types", "dep:openssl", "dep:openssl-sys"]
 crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa", "dep:sha2", "dep:x509-cert"]
+crypto_webcrypto = ["dep:x509-cert"]
 serde = ["dep:serde", "dep:serde-big-array", "dep:serde_json"]
 online = ["dep:curl", "dep:tokio"]
 
@@ -29,6 +30,9 @@ required-features = ["online"]
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 env_logger = "0.11"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [dependencies]
 # Crypto

@@ -53,6 +53,18 @@ mod online {
     }
 }
 
+/// Offline verification tests (async, uses explicit collateral)
+#[cfg(async_crypto)]
+mod offline_async {
+    use super::*;
+
+    #[wasm_bindgen_test]
+    async fn test_suite() {
+        init_logger();
+        common::test_verify_attestation_suite_async().await;
+    }
+}
+
 /// Offline verification tests (sync, uses pinned ARKs)
 #[cfg(sync_crypto)]
 mod offline {

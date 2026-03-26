@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use tee_attestation_verification_lib::snp::verify::{self, ChainVerification};
+use tee_attestation_verification_lib::snp::verify::ChainVerification;
 #[cfg(any(target_family = "wasm", feature = "online"))]
 use tee_attestation_verification_lib::SevVerifier;
 use tee_attestation_verification_lib::{certificate_from_pem, AttestationReport};
@@ -22,6 +22,58 @@ pub const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
 pub const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
 pub const TURIN_VCEK: &[u8] = include_bytes!("test_data/turin_vcek.pem");
 
+macro_rules! attestation_tests {
+    ($milan_ask:expr, $genoa_ask:expr, $turin_ask:expr, $tampered_milan_attestation:expr) => {
+        [
+            (
+                "genoa_ok_pinned",
+                GENOA_ATTESTATION,
+                GENOA_VCEK,
+                ChainVerification::WithPinnedArk { ask: &$genoa_ask },
+                Ok(()),
+            ),
+            (
+                "turin_ok_pinned",
+                TURIN_ATTESTATION,
+                TURIN_VCEK,
+                ChainVerification::WithPinnedArk { ask: &$turin_ask },
+                Ok(()),
+            ),
+            (
+                "milan_ok_pinned",
+                MILAN_ATTESTATION,
+                MILAN_VCEK,
+                ChainVerification::WithPinnedArk { ask: &$milan_ask },
+                Ok(()),
+            ),
+            (
+                "milan_invalid_root_certificate",
+                MILAN_ATTESTATION,
+                MILAN_VCEK,
+                ChainVerification::WithProvidedArk {
+                    ask: &$milan_ask,
+                    ark: &$milan_ask,
+                },
+                Err("Invalid root certificate"),
+            ),
+            (
+                "milan_genoa_ask",
+                MILAN_ATTESTATION,
+                MILAN_VCEK,
+                ChainVerification::WithPinnedArk { ask: &$genoa_ask },
+                Err("Certificate chain error"),
+            ),
+            (
+                "tampered_attestation",
+                &$tampered_milan_attestation,
+                MILAN_VCEK,
+                ChainVerification::Skip,
+                Err("Signature verification error"),
+            ),
+        ]
+    };
+}
+
 #[cfg(sync_crypto)]
 pub fn test_verify_attestation_suite() {
     let tampered_milan_attestation = {
@@ -34,58 +86,51 @@ pub fn test_verify_attestation_suite() {
     let genoa_ask = certificate_from_pem(GENOA_ASK).unwrap();
     let turin_ask = certificate_from_pem(TURIN_ASK).unwrap();
 
-    let tests = [
-        (
-            "genoa_ok_pinned",
-            GENOA_ATTESTATION,
-            GENOA_VCEK,
-            ChainVerification::WithPinnedArk { ask: &genoa_ask },
-            Ok(()),
-        ),
-        (
-            "turin_ok_pinned",
-            TURIN_ATTESTATION,
-            TURIN_VCEK,
-            ChainVerification::WithPinnedArk { ask: &turin_ask },
-            Ok(()),
-        ),
-        (
-            "milan_ok_pinned",
-            MILAN_ATTESTATION,
-            MILAN_VCEK,
-            ChainVerification::WithPinnedArk { ask: &milan_ask },
-            Ok(()),
-        ),
-        (
-            "milan_invalid_root_certificate",
-            MILAN_ATTESTATION,
-            MILAN_VCEK,
-            ChainVerification::WithProvidedArk {
-                ask: &milan_ask,
-                ark: &milan_ask,
-            },
-            Err("Invalid root certificate"),
-        ),
-        (
-            "milan_genoa_ask",
-            MILAN_ATTESTATION,
-            MILAN_VCEK,
-            ChainVerification::WithPinnedArk { ask: &genoa_ask },
-            Err("Certificate chain error"),
-        ),
-        (
-            "tampered_attestation",
-            &tampered_milan_attestation,
-            MILAN_VCEK,
-            ChainVerification::Skip,
-            Err("Signature verification error"),
-        ),
-    ];
-
-    for (tag, att, vcek, chain, expected) in tests {
+    for (tag, att, vcek, chain, expected) in
+        attestation_tests!(milan_ask, genoa_ask, turin_ask, tampered_milan_attestation)
+    {
         let report = AttestationReport::read_from_bytes(att).unwrap();
         let vcek = certificate_from_pem(vcek).unwrap();
-        let result = verify::sync::verify_attestation(&report, &vcek, &chain);
+        let result = tee_attestation_verification_lib::snp::verify::sync::verify_attestation(
+            &report, &vcek, &chain,
+        );
+
+        if let Err(e_str) = expected {
+            let err = result.expect_err(&format!("{}: Expected to fail with {}", tag, e_str));
+            assert!(
+                err.to_string().contains(e_str),
+                "{}: Expected error to contain '{}', got: {:?}",
+                tag,
+                e_str,
+                err
+            );
+        } else {
+            result.expect(&format!("{}: Expected verification to succeed", tag))
+        };
+    }
+}
+
+#[cfg(async_crypto)]
+pub async fn test_verify_attestation_suite_async() {
+    let tampered_milan_attestation = {
+        let mut tampered = MILAN_ATTESTATION.to_vec();
+        tampered[100] ^= 0xFF;
+        tampered
+    };
+    let milan_ask = certificate_from_pem(MILAN_ASK).unwrap();
+    let genoa_ask = certificate_from_pem(GENOA_ASK).unwrap();
+    let turin_ask = certificate_from_pem(TURIN_ASK).unwrap();
+
+    for (tag, att, vcek, chain, expected) in
+        attestation_tests!(milan_ask, genoa_ask, turin_ask, tampered_milan_attestation)
+    {
+        let report = AttestationReport::read_from_bytes(att).unwrap();
+        let vcek = certificate_from_pem(vcek).unwrap();
+        let result =
+            tee_attestation_verification_lib::snp::verify::asynchronous::verify_attestation(
+                &report, &vcek, &chain,
+            )
+            .await;
 
         if let Err(e_str) = expected {
             let err = result.expect_err(&format!("{}: Expected to fail with {}", tag, e_str));

@@ -214,9 +214,10 @@ mod test {
         #[test]
         fn corrupted_report_fails_to_verify() {
             let vcek = cert(MILAN_VCEK);
-            let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-                .expect("Failed to parse attestation report")
-                .clone();
+            let mut report: AttestationReport =
+                AttestationReport::try_read_from_bytes(MILAN_REPORT)
+                    .expect("Failed to parse attestation report")
+                    .clone();
 
             let report_bytes = report.as_mut_bytes();
             report_bytes[100] ^= 0xFF;
@@ -228,9 +229,10 @@ mod test {
         #[test]
         fn corrupt_signature_fails() {
             let vcek = cert(MILAN_VCEK);
-            let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-                .expect("Failed to parse attestation report")
-                .clone();
+            let mut report: AttestationReport =
+                AttestationReport::try_read_from_bytes(MILAN_REPORT)
+                    .expect("Failed to parse attestation report")
+                    .clone();
 
             report.signature.r[0] ^= 0xFF;
 
@@ -241,9 +243,10 @@ mod test {
         #[test]
         fn zeroed_signature_fails() {
             let vcek = cert(MILAN_VCEK);
-            let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-                .expect("Failed to parse attestation report")
-                .clone();
+            let mut report: AttestationReport =
+                AttestationReport::try_read_from_bytes(MILAN_REPORT)
+                    .expect("Failed to parse attestation report")
+                    .clone();
 
             report.signature.r.fill(0);
             report.signature.s.fill(0);
@@ -308,9 +311,13 @@ mod test {
         #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn self_signed_certificates() {
-            <Crypto as AsyncCryptoBackend>::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_ARK))
-                .await
-                .unwrap();
+            <Crypto as AsyncCryptoBackend>::verify_chain(
+                &[&cert(MILAN_ARK)],
+                &[],
+                &cert(MILAN_ARK),
+            )
+            .await
+            .unwrap();
         }
 
         #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
@@ -337,9 +344,10 @@ mod test {
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn corrupted_report_fails_to_verify() {
             let vcek = cert(MILAN_VCEK);
-            let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-                .expect("Failed to parse attestation report")
-                .clone();
+            let mut report: AttestationReport =
+                AttestationReport::try_read_from_bytes(MILAN_REPORT)
+                    .expect("Failed to parse attestation report")
+                    .clone();
 
             let report_bytes = report.as_mut_bytes();
             report_bytes[100] ^= 0xFF;
@@ -353,9 +361,10 @@ mod test {
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn corrupt_signature_fails() {
             let vcek = cert(MILAN_VCEK);
-            let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-                .expect("Failed to parse attestation report")
-                .clone();
+            let mut report: AttestationReport =
+                AttestationReport::try_read_from_bytes(MILAN_REPORT)
+                    .expect("Failed to parse attestation report")
+                    .clone();
 
             report.signature.r[0] ^= 0xFF;
 
@@ -368,9 +377,10 @@ mod test {
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn zeroed_signature_fails() {
             let vcek = cert(MILAN_VCEK);
-            let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-                .expect("Failed to parse attestation report")
-                .clone();
+            let mut report: AttestationReport =
+                AttestationReport::try_read_from_bytes(MILAN_REPORT)
+                    .expect("Failed to parse attestation report")
+                    .clone();
 
             report.signature.r.fill(0);
             report.signature.s.fill(0);

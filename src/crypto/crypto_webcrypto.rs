@@ -28,8 +28,12 @@ impl Certificate {
 impl AsyncVerifier<Certificate> for Certificate {
     async fn verify(&self, subject: &Certificate) -> Result<()> {
         let subtle = subtle_crypto()?;
-        let key = import_certificate_signing_key(&subtle, &self.inner, subject.inner.signature_algorithm()?)
-            .await?;
+        let key = import_certificate_signing_key(
+            &subtle,
+            &self.inner,
+            subject.inner.signature_algorithm()?,
+        )
+        .await?;
         let signature = subject.inner.signature_bytes().to_vec();
         let data = subject.inner.tbs_certificate_der()?;
 

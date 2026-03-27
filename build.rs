@@ -11,7 +11,7 @@ fn main() {
     let has_webcrypto = std::env::var_os("CARGO_FEATURE_CRYPTO_WEBCRYPTO").is_some();
 
     if has_webcrypto && target_arch != "wasm32" {
-      panic!("`crypto_webcrypto` is only supported on wasm32 targets.");
+        panic!("`crypto_webcrypto` is only supported on wasm32 targets.");
     }
 
     if has_openssl && target_arch == "wasm32" {
@@ -28,7 +28,7 @@ fn main() {
         panic!("At least one crypto backend must be enabled")
     };
 
-    let backend_map= std::collections::BTreeMap::from([
+    let backend_map = std::collections::BTreeMap::from([
         ("crypto_openssl", (true, true)),
         ("crypto_pure_rust", (true, true)),
         ("crypto_webcrypto", (false, true)),

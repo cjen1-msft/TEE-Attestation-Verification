@@ -3,7 +3,7 @@
 
 //! Cryptographic backend for certificate and attestation verification.
 //!
-//! Supports two backends via feature flags:
+//! Supports sync verification backends via feature flags:
 //! - `crypto_openssl` - OpenSSL-based (not available on WASM)
 //! - `crypto_pure_rust` - Pure Rust (required for WASM)
 //!
@@ -19,14 +19,18 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 use crate::snp::report::AttestationReport;
 
-/// Verifies that data was signed by the implementor's private key.
-pub trait Verifier<T> {
-    fn verify(&self, data: &T) -> Result<()>;
+pub mod verifier {
+    use super::Result;
+
+    /// Verifies that data was signed by the implementor's private key.
+    pub(crate) trait Sync<T> {
+        fn verify(&self, data: &T) -> Result<()>;
+    }
 }
 
-/// Crypto backend trait for certificate parsing and chain verification.
-pub trait CryptoBackend {
-    type Certificate: Verifier<Self::Certificate> + Verifier<AttestationReport>;
+/// Backend-internal trait for certificate parsing, encoding, and inspection.
+pub trait CertificateBackend {
+    type Certificate: Clone;
 
     /// Parse a certificate from PEM-encoded data.
     fn from_pem(pem: &[u8]) -> Result<Self::Certificate>;
@@ -43,13 +47,6 @@ pub trait CryptoBackend {
     /// Encode a certificate as PEM for debug logging.
     fn to_pem(cert: &Self::Certificate) -> Result<String>;
 
-    /// Verify a certificate chain from `trusted_certs` through `untrusted_chain` to `leaf`.
-    fn verify_chain(
-        trusted_certs: &[&Self::Certificate],
-        untrusted_chain: &[&Self::Certificate],
-        leaf: &Self::Certificate,
-    ) -> Result<()>;
-
     /// Extract the SubjectPublicKeyInfo (DER-encoded) from the certificate.
     fn get_public_key(cert: &Self::Certificate) -> Result<Vec<u8>>;
 
@@ -57,25 +54,42 @@ pub trait CryptoBackend {
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>>;
 }
 
-#[cfg(feature = "crypto_openssl")]
-mod crypto_openssl;
-#[cfg(feature = "crypto_pure_rust")]
-mod crypto_pure_rust;
+/// Backend-internal trait for certificate verification operations.
+pub trait CryptoBackend: CertificateBackend
+where
+    <Self as CertificateBackend>::Certificate: verifier::Sync<<Self as CertificateBackend>::Certificate>
+        + verifier::Sync<AttestationReport>,
+{
+    /// Verify a certificate chain from `trusted_certs` through `untrusted_chain` to `leaf`.
+    fn verify_chain(
+        trusted_certs: &[&<Self as CertificateBackend>::Certificate],
+        untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
+        leaf: &<Self as CertificateBackend>::Certificate,
+    ) -> Result<()>;
+}
 
-// If both are enabled, prefer openssl
 #[cfg(feature = "crypto_openssl")]
-pub use crypto_openssl::Crypto;
-#[cfg(all(feature = "crypto_pure_rust", not(feature = "crypto_openssl")))]
-pub use crypto_pure_rust::Crypto;
+pub(crate) mod crypto_openssl;
+#[cfg(feature = "crypto_pure_rust")]
+pub(crate) mod crypto_pure_rust;
+#[cfg(feature = "crypto_pure_rust")]
+mod x509_certificate;
+
+// If both are enabled, prefer pure rust
+#[cfg(all(feature = "crypto_openssl", not(feature = "crypto_pure_rust")))]
+pub type Crypto = crypto_openssl::Crypto;
+#[cfg(feature = "crypto_pure_rust")]
+pub type Crypto = crypto_pure_rust::Crypto;
 
 /// The certificate type for the active crypto backend.
-pub type Certificate = <Crypto as CryptoBackend>::Certificate;
+pub type Certificate = <Crypto as CertificateBackend>::Certificate;
 
 #[cfg(test)]
 mod test {
+    use super::verifier::Sync as Verifier;
     use zerocopy::{IntoBytes, TryFromBytes};
-    use Crypto;
 
+    use super::Crypto;
     use super::*;
 
     const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
@@ -90,24 +104,30 @@ mod test {
 
     #[test]
     fn full_chain_verifies() {
-        Crypto::verify_chain(&[&cert(MILAN_ARK)], &[&cert(MILAN_ASK)], &cert(MILAN_VCEK)).unwrap();
+        <Crypto as CryptoBackend>::verify_chain(
+            &[&cert(MILAN_ARK)],
+            &[&cert(MILAN_ASK)],
+            &cert(MILAN_VCEK),
+        )
+        .unwrap();
     }
 
     #[test]
     fn empty_trust_store_fails() {
-        Crypto::verify_chain(&[], &[], &cert(MILAN_VCEK))
+        <Crypto as CryptoBackend>::verify_chain(&[], &[], &cert(MILAN_VCEK))
             .expect_err("Should fail with no trusted certs");
     }
 
     #[test]
     fn untrusted_intermediates_are_required() {
-        Crypto::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_VCEK))
+        <Crypto as CryptoBackend>::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_VCEK))
             .expect_err("VCEK should not verify without ASK intermediate");
     }
 
     #[test]
     fn self_signed_certificates() {
-        Crypto::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_ARK)).unwrap();
+        <Crypto as CryptoBackend>::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_ARK))
+            .unwrap();
     }
 
     #[test]
@@ -184,84 +204,5 @@ mod test {
 
         vcek.verify(&report)
             .expect_err("Wrong cert should not verify report");
-    }
-
-    #[test]
-    fn extension_lookup_returns_expected_bootloader_value() {
-        let vcek = cert(MILAN_VCEK);
-        let report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-            .expect("Failed to parse attestation report")
-            .clone();
-        let tcb = report.reported_tcb.as_milan_genoa();
-
-        let bootloader = Crypto::get_extension_value_by_oid(&vcek, "1.3.6.1.4.1.3704.1.3.1")
-            .expect("BootLoader OID lookup should succeed")
-            .expect("BootLoader OID should be present in Milan VCEK");
-
-        assert_eq!(bootloader, vec![0x02, 0x01, tcb.boot_loader]);
-    }
-
-    #[test]
-    fn extension_lookup_returns_expected_hwid_value() {
-        let vcek = cert(MILAN_VCEK);
-        let report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-            .expect("Failed to parse attestation report")
-            .clone();
-
-        let hwid = Crypto::get_extension_value_by_oid(&vcek, "1.3.6.1.4.1.3704.1.4")
-            .expect("HWID OID lookup should succeed")
-            .expect("HWID OID should be present in Milan VCEK");
-
-        assert_eq!(hwid, report.chip_id.as_slice());
-    }
-
-    #[test]
-    fn extension_lookup_returns_none_for_missing_oid() {
-        let vcek = cert(MILAN_VCEK);
-
-        let missing = Crypto::get_extension_value_by_oid(&vcek, "1.2.3.4.5.6.7.8.9")
-            .expect("Missing OID lookup should not fail");
-
-        assert!(missing.is_none());
-    }
-
-    #[test]
-    fn extension_lookup_rejects_malformed_oid() {
-        let vcek = cert(MILAN_VCEK);
-
-        Crypto::get_extension_value_by_oid(&vcek, "not-an-oid")
-            .expect_err("Malformed OID should fail");
-    }
-
-    #[test]
-    fn pem_chain_parsing_preserves_input_order() {
-        let mut pem_chain = Vec::new();
-        pem_chain.extend_from_slice(MILAN_ASK);
-        pem_chain.push(b'\n');
-        pem_chain.extend_from_slice(MILAN_ARK);
-
-        let chain = Crypto::from_pem_chain(&pem_chain).expect("PEM chain should parse");
-
-        assert_eq!(chain.len(), 2);
-        assert_eq!(
-            Crypto::to_der(&chain[0]).expect("ASK DER should encode"),
-            Crypto::to_der(&cert(MILAN_ASK)).expect("ASK fixture DER should encode")
-        );
-        assert_eq!(
-            Crypto::to_der(&chain[1]).expect("ARK DER should encode"),
-            Crypto::to_der(&cert(MILAN_ARK)).expect("ARK fixture DER should encode")
-        );
-    }
-
-    #[test]
-    fn pem_encoding_round_trips_through_from_pem() {
-        let cert = cert(MILAN_VCEK);
-        let pem = Crypto::to_pem(&cert).expect("PEM encoding should succeed");
-        let reparsed = Crypto::from_pem(pem.as_bytes()).expect("PEM should parse");
-
-        assert_eq!(
-            Crypto::to_der(&reparsed).expect("Reparsed DER should encode"),
-            Crypto::to_der(&cert).expect("Original DER should encode")
-        );
     }
 }

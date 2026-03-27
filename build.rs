@@ -14,6 +14,10 @@ fn main() {
       panic!("`crypto_webcrypto` is only supported on wasm32 targets.");
     }
 
+    if has_openssl && target_arch == "wasm32" {
+        panic!("`crypto_openssl` is not supported on wasm32 targets.");
+    }
+
     let crypto_backend = if has_openssl {
         "crypto_openssl"
     } else if has_webcrypto {

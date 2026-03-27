@@ -48,7 +48,7 @@ pub fn init() {
 }
 
 /// JavaScript-facing verification function
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature="serde"))]
 #[wasm_bindgen]
 pub async fn verify_attestation_report(attestation_report_json: &str) -> Result<(), String> {
     let attestation_report: AttestationReport = serde_json::from_str(attestation_report_json)

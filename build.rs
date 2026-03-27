@@ -11,11 +11,11 @@ fn main() {
     let has_webcrypto = std::env::var_os("CARGO_FEATURE_CRYPTO_WEBCRYPTO").is_some();
 
     if has_webcrypto && target_arch != "wasm32" {
-        panic!("`crypto_webcrypto` is only supported on wasm32 targets.");
+        panic!("`crypto_webcrypto` is only supported on wasm32 targets, use `crypto_openssl` instead.");
     }
 
     if has_openssl && target_arch == "wasm32" {
-        panic!("`crypto_openssl` is not supported on wasm32 targets.");
+        panic!("`crypto_openssl` is not supported on wasm32 targets, use `crypto_webcrypto` instead.");
     }
 
     let crypto_backend = if has_openssl {

@@ -7,7 +7,10 @@ use rsa::{
     RsaPublicKey,
 };
 use sha2::Sha384;
-use x509_cert::der::{referenced::OwnedToRef, Encode};
+use x509_cert::der::{
+    oid::ObjectIdentifier, pem::LineEnding, referenced::OwnedToRef, Decode, DecodePem, Encode,
+    EncodePem,
+};
 
 use super::{CryptoBackend, Result, Verifier};
 use crate::snp::report::{AttestationReport, Signature};
@@ -62,15 +65,18 @@ impl CryptoBackend for Crypto {
     type Certificate = Certificate;
 
     fn from_pem(pem: &[u8]) -> Result<Self::Certificate> {
-        use x509_cert::der::DecodePem;
         let pem_str =
             std::str::from_utf8(pem).map_err(|e| format!("Invalid UTF-8 in PEM data: {:?}", e))?;
         Certificate::from_pem(pem_str)
             .map_err(|e| format!("Failed to parse PEM certificate: {:?}", e).into())
     }
 
+    fn from_pem_chain(pem: &[u8]) -> Result<Vec<Self::Certificate>> {
+        Certificate::load_pem_chain(pem)
+            .map_err(|e| format!("Failed to parse PEM certificate chain: {:?}", e).into())
+    }
+
     fn from_der(der: &[u8]) -> Result<Self::Certificate> {
-        use x509_cert::der::Decode;
         Certificate::from_der(der)
             .map_err(|e| format!("Failed to parse DER certificate: {:?}", e).into())
     }
@@ -78,6 +84,11 @@ impl CryptoBackend for Crypto {
     fn to_der(cert: &Self::Certificate) -> Result<Vec<u8>> {
         cert.to_der()
             .map_err(|e| format!("Failed to encode certificate as DER: {:?}", e).into())
+    }
+
+    fn to_pem(cert: &Self::Certificate) -> Result<String> {
+        cert.to_pem(LineEnding::LF)
+            .map_err(|e| format!("Failed to encode certificate as PEM: {:?}", e).into())
     }
 
     fn verify_chain(
@@ -106,6 +117,21 @@ impl CryptoBackend for Crypto {
             .subject_public_key_info
             .to_der()
             .map_err(|e| format!("Failed to encode SubjectPublicKeyInfo: {:?}", e).into())
+    }
+
+    fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>> {
+        let oid = ObjectIdentifier::new(oid)
+            .map_err(|e| format!("Invalid extension OID {}: {:?}", oid, e))?;
+
+        let extensions = match cert.tbs_certificate.extensions.as_ref() {
+            Some(extensions) => extensions,
+            None => return Ok(None),
+        };
+
+        Ok(extensions
+            .iter()
+            .find(|extension| extension.extn_id == oid)
+            .map(|extension| extension.extn_value.as_bytes().to_vec()))
     }
 }
 

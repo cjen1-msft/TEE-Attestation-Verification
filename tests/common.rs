@@ -1,11 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use tee_attestation_verification_lib::crypto::{Crypto, CryptoBackend};
 use tee_attestation_verification_lib::snp::verify::{self, ChainVerification};
-use tee_attestation_verification_lib::AttestationReport;
 #[cfg(any(target_family = "wasm", feature = "online"))]
 use tee_attestation_verification_lib::SevVerifier;
+use tee_attestation_verification_lib::{certificate_from_pem, AttestationReport};
 use zerocopy::FromBytes;
 
 // Attestation reports
@@ -30,9 +29,9 @@ pub fn test_verify_attestation_suite() {
         tampered[100] ^= 0xFF;
         tampered
     };
-    let milan_ask = Crypto::from_pem(MILAN_ASK).unwrap();
-    let genoa_ask = Crypto::from_pem(GENOA_ASK).unwrap();
-    let turin_ask = Crypto::from_pem(TURIN_ASK).unwrap();
+    let milan_ask = certificate_from_pem(MILAN_ASK).unwrap();
+    let genoa_ask = certificate_from_pem(GENOA_ASK).unwrap();
+    let turin_ask = certificate_from_pem(TURIN_ASK).unwrap();
 
     let tests = [
         (
@@ -84,7 +83,7 @@ pub fn test_verify_attestation_suite() {
 
     for (tag, att, vcek, chain, expected) in tests {
         let report = AttestationReport::read_from_bytes(att).unwrap();
-        let vcek = Crypto::from_pem(vcek).unwrap();
+        let vcek = certificate_from_pem(vcek).unwrap();
         let result = verify::verify_attestation(&report, &vcek, chain);
 
         if let Err(e_str) = expected {

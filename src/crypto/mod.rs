@@ -8,21 +8,6 @@
 //! - `crypto_pure_rust` - Pure Rust
 //! - `crypto_webcrypto` - WebCrypto-based async verification for WASM
 
-#[cfg(not(any(
-    feature = "crypto_openssl",
-    feature = "crypto_pure_rust",
-    feature = "crypto_webcrypto"
-)))]
-compile_error!(
-    "At least one crypto backend feature must be enabled: \
-     `crypto_openssl`, `crypto_pure_rust`, or `crypto_webcrypto`."
-);
-#[cfg(all(target_arch = "wasm32", crypto_backend = "crypto_openssl"))]
-compile_error!(
-    "`crypto_openssl` is not supported on wasm32 targets. Use `crypto_webcrypto` or `crypto_pure_rust` instead."
-);
-#[cfg(all(not(target_arch = "wasm32"), crypto_backend = "crypto_webcrypto"))]
-compile_error!("`crypto_webcrypto` is only supported on wasm32 targets.");
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 use crate::snp::report::AttestationReport;

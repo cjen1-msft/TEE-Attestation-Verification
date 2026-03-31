@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! WASM-only AMD SEV-SNP Attestation Verification
+//! AMD SEV-SNP attestation verification helpers for online verification.
 //!
-//! This implementation is designed to be compiled only for wasm32 and uses
-//! wasm-bindgen for fetching KDS artifacts via an extension-provided JS bridge.
+//! This module is compiled for wasm32 targets and for native builds with the
+//! `online` feature enabled.
 
 #[cfg(not(any(feature = "online", target_arch = "wasm32")))]
 compile_error!("sev_verification module requires either the 'online' feature or wasm32 target");

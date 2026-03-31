@@ -5,12 +5,12 @@ A minimal-external-dependencies, portable and safe library for verifying a TEE a
 ## Features
 
 - **AMD SEV-SNP Attestation Verification**: Validates attestation reports from AMD EPYC processors
-- **WASM-Compatible**: Build for `wasm32` with an explicit crypto backend
+- **WASM-Compatible**: Build for `wasm32` with a WebCrypto backend
 - **Azure Linux 3.0 compatible**: Build for Azure Linux 3.0, with `rust-openssl` as the sole dependency.
 
 ## Usage
 
-Add the library to your `Cargo.toml` with an explicit native crypto backend:
+Add the library to your `Cargo.toml` with a native crypto backend:
 
 ```toml
 [dependencies]
@@ -37,10 +37,16 @@ sync::verify_attestation(
 
 ## Wasm
 
-Build the library for `wasm32-unknown-unknown` with an explicit crypto backend:
+Build the library for `wasm32` with the WebCrypto backend:
 
 ```bash
-cargo build --target wasm32-unknown-unknown --no-default-features --features "crypto_pure_rust,serde"
+wasm-pack build --target web -- --no-default-features --features "crypto_webcrypto"
+```
+
+For a plain Cargo build targeting `wasm32-unknown-unknown`:
+
+```bash
+cargo build --target wasm32-unknown-unknown --no-default-features --features "crypto_webcrypto"
 ```
 
 ## SEV-SNP Verification Process

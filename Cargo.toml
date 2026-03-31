@@ -17,6 +17,7 @@ path = "src/lib.rs"
 # At least one crypto backend must be enabled.
 crypto_openssl = ["dep:foreign-types", "dep:openssl", "dep:openssl-sys"]
 crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa", "dep:sha2", "dep:x509-cert"]
+crypto_webcrypto = ["dep:x509-cert"]
 serde = ["dep:serde", "dep:serde-big-array", "dep:serde_json"]
 online = ["dep:curl", "dep:tokio"]
 

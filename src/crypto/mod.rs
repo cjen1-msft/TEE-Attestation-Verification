@@ -6,16 +6,23 @@
 //! Supports crypto backends via feature flags:
 //! - `crypto_openssl` - OpenSSL-based (not available on WASM)
 //! - `crypto_pure_rust` - Pure Rust
+//! - `crypto_webcrypto` - WebCrypto-based async verification for WASM
 
-#[cfg(not(any(feature = "crypto_openssl", feature = "crypto_pure_rust")))]
+#[cfg(not(any(
+    feature = "crypto_openssl",
+    feature = "crypto_pure_rust",
+    feature = "crypto_webcrypto"
+)))]
 compile_error!(
     "At least one crypto backend feature must be enabled: \
-     `crypto_openssl` or `crypto_pure_rust`."
+     `crypto_openssl`, `crypto_pure_rust`, or `crypto_webcrypto`."
 );
 #[cfg(all(target_arch = "wasm32", crypto_backend = "crypto_openssl"))]
 compile_error!(
-    "`crypto_openssl` is not supported on wasm32 targets. Use `crypto_pure_rust` instead."
+    "`crypto_openssl` is not supported on wasm32 targets. Use `crypto_webcrypto` instead."
 );
+#[cfg(all(not(target_arch = "wasm32"), crypto_backend = "crypto_webcrypto"))]
+compile_error!("`crypto_webcrypto` is only supported on wasm32 targets.");
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 use crate::snp::report::AttestationReport;
@@ -120,13 +127,17 @@ where
 pub(crate) mod crypto_openssl;
 #[cfg(feature = "crypto_pure_rust")]
 pub(crate) mod crypto_pure_rust;
-#[cfg(feature = "crypto_pure_rust")]
+#[cfg(feature = "crypto_webcrypto")]
+pub(crate) mod crypto_webcrypto;
+#[cfg(any(feature = "crypto_pure_rust", feature = "crypto_webcrypto"))]
 mod x509_certificate;
 
 #[cfg(crypto_backend = "crypto_openssl")]
 pub type Crypto = crypto_openssl::Crypto;
 #[cfg(crypto_backend = "crypto_pure_rust")]
 pub type Crypto = crypto_pure_rust::Crypto;
+#[cfg(crypto_backend = "crypto_webcrypto")]
+pub type Crypto = crypto_webcrypto::Crypto;
 
 /// The certificate type for the active crypto backend.
 pub type Certificate = <Crypto as CertificateBackend>::Certificate;

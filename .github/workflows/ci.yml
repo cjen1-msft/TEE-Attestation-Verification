@@ -43,6 +43,9 @@ jobs:
           cargo install wasm-bindgen-cli
           cargo install wasm-pack
 
+      - name: Build WASM with WebCrypto crypto
+        run: wasm-pack build --target web --no-default-features --features "crypto_webcrypto"
+
       - name: Test WASM offline
         run: wasm-pack test --node --no-default-features --features "crypto_pure_rust" -- offline
 

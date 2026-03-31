@@ -27,8 +27,8 @@ jobs:
         run: |
           cargo fmt -- --check
 
-  wasm-build:
-    name: WASM build
+  wasm-tests:
+    name: WASM tests
     runs-on: ubuntu-latest
 
     steps:
@@ -43,21 +43,18 @@ jobs:
           cargo install wasm-bindgen-cli
           cargo install wasm-pack
 
-      - name: Build WASM
-        run: |
-          cargo build --target wasm32-unknown-unknown --no-default-features --features "crypto_pure_rust,serde"
-          wasm-pack build --no-default-features --features "crypto_pure_rust,serde"
+      - name: Test WASM lib with pure-rust backend
+        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust" --lib
 
+      - name: Test WASM offline integration with pure-rust backend
+        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust" --test offline
 
-      - name: Test WASM offline
-        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,serde" -- offline
-
-      - name: Test WASM online (optional - may fail due to KDS rate limiting)
+      - name: Test WASM online integration with pure-rust backend
         continue-on-error: true
-        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,serde"
+        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust" --test online
 
   native-openssl:
-    name: Native openssl
+    name: Native openssl lib tests
     runs-on: ubuntu-latest
 
     steps:
@@ -66,18 +63,11 @@ jobs:
         run: |
           rustup update stable && rustup default stable
 
-      - name: Build with openssl
-        run: cargo build --no-default-features --features "crypto_openssl"
-
-      - name: Test offline with openssl
-        run: cargo test --no-default-features --features "crypto_openssl" -- --nocapture
-
-      - name: Test online with openssl (optional - may fail due to KDS rate limiting)
-        continue-on-error: true
-        run: cargo test --no-default-features --features "crypto_openssl,online" online -- --nocapture
+      - name: Test lib with openssl backend
+        run: cargo test --no-default-features --features "crypto_openssl" --lib -- --nocapture
 
   native-pure-rust:
-    name: Native pure-rust
+    name: Native pure-rust tests
     runs-on: ubuntu-latest
 
     steps:
@@ -86,8 +76,12 @@ jobs:
         run: |
           rustup update stable && rustup default stable
 
-      - name: Build with pure_rust crypto
-        run: cargo build --no-default-features --features "crypto_pure_rust"
+      - name: Test lib with pure-rust backend
+        run: cargo test --no-default-features --features "crypto_pure_rust" --lib -- --nocapture
 
-      - name: Test offline with pure_rust crypto
-        run: cargo test --no-default-features --features "crypto_pure_rust" -- --nocapture
+      - name: Test offline integration with pure-rust backend
+        run: cargo test --no-default-features --features "crypto_pure_rust" --test offline -- --nocapture
+
+      - name: Test online integration with pure-rust backend
+        continue-on-error: true
+        run: cargo test --no-default-features --features "crypto_pure_rust,online" --test online -- --nocapture

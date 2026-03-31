@@ -169,16 +169,18 @@ async fn import_spki_key(
     spki_der: &[u8],
     algorithm: &Object,
 ) -> Result<CryptoKey> {
+    let key_data = Uint8Array::from(spki_der);
     let usages = Array::new();
     usages.push(&JsValue::from_str("verify"));
+    let key_usages = JsValue::from(usages);
 
     let promise = subtle
         .import_key_with_object(
             "spki",
-            Uint8Array::from(spki_der).as_ref(),
+            key_data.as_ref(),
             algorithm,
             false,
-            &usages,
+            &key_usages,
         )
         .map_err(js_error)?;
     let key = JsFuture::from(promise).await.map_err(js_error)?;

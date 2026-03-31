@@ -18,7 +18,7 @@ fn main() {
 
     if has_openssl && target_arch == "wasm32" {
         panic!(
-            "`crypto_openssl` is not supported on wasm32 targets, use `crypto_webcrypto` instead."
+            "`crypto_openssl` is not supported on wasm32 targets, use `crypto_webcrypto` or `crypto_pure_rust` instead."
         );
     }
 
@@ -29,7 +29,7 @@ fn main() {
     } else if has_pure_rust {
         "crypto_pure_rust"
     } else {
-        panic!("At least one crypto backend must be enabled")
+        panic!("At least one crypto backend must be enabled, enable one of `crypto_openssl`, `crypto_webcrypto` or `crypto_pure_rust`.")
     };
 
     let backend_map = std::collections::BTreeMap::from([

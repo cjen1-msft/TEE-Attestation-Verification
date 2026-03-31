@@ -19,7 +19,7 @@ compile_error!(
 );
 #[cfg(all(target_arch = "wasm32", crypto_backend = "crypto_openssl"))]
 compile_error!(
-    "`crypto_openssl` is not supported on wasm32 targets. Use `crypto_webcrypto` instead."
+    "`crypto_openssl` is not supported on wasm32 targets. Use `crypto_webcrypto` or `crypto_pure_rust` instead."
 );
 #[cfg(all(not(target_arch = "wasm32"), crypto_backend = "crypto_webcrypto"))]
 compile_error!("`crypto_webcrypto` is only supported on wasm32 targets.");

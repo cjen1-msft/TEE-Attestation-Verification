@@ -175,13 +175,7 @@ async fn import_spki_key(
     let key_usages = JsValue::from(usages);
 
     let promise = subtle
-        .import_key_with_object(
-            "spki",
-            key_data.as_ref(),
-            algorithm,
-            false,
-            &key_usages,
-        )
+        .import_key_with_object("spki", key_data.as_ref(), algorithm, false, &key_usages)
         .map_err(js_error)?;
     let key = JsFuture::from(promise).await.map_err(js_error)?;
 

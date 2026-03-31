@@ -147,7 +147,7 @@ pub async fn test_verify_attestation_suite_async() {
     }
 }
 
-#[cfg(all(any(target_family = "wasm", feature = "online"), async_crypto))]
+#[cfg(all(feature = "online", async_crypto))]
 pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<(), String> {
     let attestation_report = AttestationReport::read_from_bytes(bytes)
         .map_err(|e| format!("Failed to read attestation report: {:?}", e))?;
@@ -162,17 +162,17 @@ pub async fn verify_attestation_bytes(bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("Verification call failed: {:?}", e))
 }
 
-#[cfg(all(any(target_family = "wasm", feature = "online"), async_crypto))]
+#[cfg(all(feature = "online", async_crypto))]
 pub async fn verify_milan_attestation() -> Result<(), String> {
     verify_attestation_bytes(MILAN_ATTESTATION).await
 }
 
-#[cfg(all(any(target_family = "wasm", feature = "online"), async_crypto))]
+#[cfg(all(feature = "online", async_crypto))]
 pub async fn verify_genoa_attestation() -> Result<(), String> {
     verify_attestation_bytes(GENOA_ATTESTATION).await
 }
 
-#[cfg(all(any(target_family = "wasm", feature = "online"), async_crypto))]
+#[cfg(all(feature = "online", async_crypto))]
 pub async fn verify_turin_attestation() -> Result<(), String> {
     verify_attestation_bytes(TURIN_ATTESTATION).await
 }

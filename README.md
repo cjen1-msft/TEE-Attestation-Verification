@@ -5,34 +5,42 @@ A minimal-external-dependencies, portable and safe library for verifying a TEE a
 ## Features
 
 - **AMD SEV-SNP Attestation Verification**: Validates attestation reports from AMD EPYC processors
-- **WASM-Compatible**: Built for `wasm32-unknown-unknown` target with no external dependencies
-- **Azure Linux 3.0 compatible**: Built for Azure Linux 3.0, with `rust-openssl` as the sole dependency.
+- **WASM-Compatible**: Build for `wasm32` with an explicit crypto backend
+- **Azure Linux 3.0 compatible**: Build for Azure Linux 3.0, with `rust-openssl` as the sole dependency.
 
 ## Usage
 
-```rust
-use sev_verification::verify_attestation;
+Add the library to your `Cargo.toml` with an explicit native crypto backend:
 
-let result = verify_attestation(attestation_bytes).await?;
-
-if result.is_valid {
-    println!("Attestation verified successfully!");
-} else {
-    println!("Verification failed: {:?}", result.errors);
-}
+```toml
+[dependencies]
+tee-attestation-verification-lib = { version = "0.1.0", features = ["crypto_openssl"] }
 ```
 
-## Building
+Then verify an attestation report with the synchronous `snp::verify::sync` API:
 
-Build for WebAssembly:
+```rust
+use tee_attestation_verification_lib::snp::verify::{sync, ChainVerification};
+use tee_attestation_verification_lib::{certificate_from_pem, AttestationReport};
+use zerocopy::FromBytes;
+
+let attestation_report = AttestationReport::read_from_bytes(attestation_bytes)?;
+let vcek = certificate_from_pem(vcek_pem)?;
+let ask = certificate_from_pem(ask_pem)?;
+
+sync::verify_attestation(
+    &attestation_report,
+    &vcek,
+    &ChainVerification::WithPinnedArk { ask: &ask },
+)?;
+```
+
+## Wasm
+
+Build the library for `wasm32-unknown-unknown` with an explicit crypto backend:
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-```
-
-Use the low TCB variant in another project:
-```toml
-tee-attestation-verification = { default-features = false, features = ["crypto_openssl"], ...}
+cargo build --target wasm32-unknown-unknown --no-default-features --features "crypto_pure_rust,serde"
 ```
 
 ## SEV-SNP Verification Process

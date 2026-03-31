@@ -1,12 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! WASM-compatible helper crate for Patty
-//!
-//! This crate will host SEV-SNP verification code that can be compiled for both
-//! native service usage and for browser/WASM relying parties. For now it re-exports
-//! the `sev_verification` module which contains the verification engine.
-
 pub(crate) mod crypto;
 pub mod pinned_arks;
 pub mod snp;

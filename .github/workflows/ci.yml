@@ -43,18 +43,18 @@ jobs:
           cargo install wasm-bindgen-cli
           cargo install wasm-pack
 
-      - name: Build WASM
-        run: |
-          cargo build --target wasm32-unknown-unknown --no-default-features --features "crypto_pure_rust,serde"
-          wasm-pack build --no-default-features --features "crypto_pure_rust,serde"
-
+      - name: Build WASM with WebCrypto crypto
+        run: wasm-pack build --target web --no-default-features --features "crypto_webcrypto"
 
       - name: Test WASM offline
-        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,serde" -- offline
+        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust"
+
+      - name: Test WASM offline with WebCrypto backend
+        run: wasm-pack test --node --no-default-features --features "crypto_webcrypto"
 
       - name: Test WASM online (optional - may fail due to KDS rate limiting)
         continue-on-error: true
-        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,serde"
+        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,serde,online"
 
   native-openssl:
     name: Native openssl
@@ -74,7 +74,7 @@ jobs:
 
       - name: Test online with openssl (optional - may fail due to KDS rate limiting)
         continue-on-error: true
-        run: cargo test --no-default-features --features "crypto_openssl,online" online -- --nocapture
+        run: cargo test --no-default-features --features "crypto_openssl,online" -- --nocapture
 
   native-pure-rust:
     name: Native pure-rust

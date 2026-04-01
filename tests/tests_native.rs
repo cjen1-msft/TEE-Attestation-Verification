@@ -57,3 +57,15 @@ mod offline {
         common::test_verify_attestation_suite();
     }
 }
+
+/// Offline verification tests (async, uses pinned ARKs)
+#[cfg(async_crypto)]
+mod offline_async {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_suite() {
+        init_logger();
+        common::test_verify_attestation_suite_async().await;
+    }
+}

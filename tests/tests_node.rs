@@ -25,6 +25,7 @@ fn init_logger() {
 }
 
 /// Online verification tests (async, fetches certs from AMD KDS)
+#[cfg(feature = "online")]
 mod online {
     use super::*;
 
@@ -50,6 +51,18 @@ mod online {
         common::verify_turin_attestation()
             .await
             .expect("Verification call failed");
+    }
+}
+
+/// Offline verification tests (async, uses explicit collateral)
+#[cfg(async_crypto)]
+mod offline_async {
+    use super::*;
+
+    #[wasm_bindgen_test]
+    async fn test_suite() {
+        init_logger();
+        common::test_verify_attestation_suite_async().await;
     }
 }
 

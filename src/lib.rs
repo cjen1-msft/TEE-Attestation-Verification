@@ -48,11 +48,13 @@ pub fn init() {
 }
 
 /// JavaScript-facing verification function
-#[cfg(all(target_arch = "wasm32", feature = "serde"))]
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub async fn verify_attestation_report(attestation_report_json: &str) -> Result<(), String> {
-    let attestation_report: AttestationReport = serde_json::from_str(attestation_report_json)
-        .map_err(|e| format!("Failed to parse attestation report: {}", e))?;
+pub async fn verify_attestation_report(attestation_report_bytes: &[u8]) -> Result<(), String> {
+    use zerocopy::FromBytes;
+
+    let attestation_report = AttestationReport::read_from_bytes(attestation_report_bytes)
+        .map_err(|e| format!("Failed to parse attestation report: {:?}", e))?;
 
     let mut verifier = SevVerifier::new()
         .await

@@ -10,13 +10,14 @@ A minimal-external-dependencies, portable and safe library for verifying a TEE a
 
 ## Crypto Backends
 
-Exactly one crypto backend must be enabled:
+At least one target-compatible crypto backend must be enabled.
+If multiple backends are enabled, the target-compatible backend is selected with `crypto_openssl` and `crypto_webcrypto` preferred over `crypto_pure_rust`.
 
 | Feature | Platforms | sync | async | Dependencies |
 |---|---|---|---|---|
 | `crypto_openssl` | Native | ✓ | ✓ | OpenSSL |
-| `crypto_pure_rust` | Native, WASM | ✓ | ✓ | Pure Rust (`p384`, `rsa`, `sha2`) |
 | `crypto_webcrypto` | WASM only | | ✓ | WebCrypto API |
+| `crypto_pure_rust` | Native, WASM | ✓ | ✓ | Pure Rust (`p384`, `rsa`, `sha2`); selected when enabled and no target-preferred backend is enabled |
 
 ## Optional Features
 
@@ -30,7 +31,7 @@ Add the library to your `Cargo.toml` with a crypto backend:
 
 ```toml
 [dependencies]
-tee-attestation-verification-lib = { version = "0.1.0", features = ["crypto_openssl"] }
+tee-attestation-verification-lib = { git = "https://github.com/microsoft/TEE-Attestation-Verification", tag = "tav-0.1.0", features = ["crypto_openssl"] }
 ```
 
 ### Offline verification (caller provides certificates)
@@ -74,10 +75,20 @@ verifier.verify_attestation(&attestation_report).await?;
 
 ## WASM
 
+Release tags use the `tav-<crate-version>` format.
+
+Releases include a WASM and JS wrapper tarball for direct consumption. The tarball contains the generated `wasm-pack` `pkg/` output for the WebCrypto backend.
+
+### Consuming a release tarball
+
+Download the matching GitHub release asset for your chosen `tav-<crate-version>` tag.
+
+### Building from source
+
 Build the library for `wasm32` with the WebCrypto backend:
 
 ```bash
-wasm-pack build --target web -- --no-default-features --features "crypto_webcrypto,kds"
+wasm-pack build --target web --no-default-features --features "crypto_webcrypto,kds"
 ```
 
 For a plain Cargo build targeting `wasm32-unknown-unknown`:
@@ -90,7 +101,12 @@ cargo build --target wasm32-unknown-unknown --no-default-features --features "cr
 
 - **Certificate Validation**: Verifies the certificate chain from the ARK through the ASK to the VCEK, and the ARK against a root-of-trust
 - **Signature Validation**: Validates the attestation report signature was signed by the VCEK
-- **TCB Verification**: Confirm that the TCB values in the attestation report match the VCEK's x509v3 extensions.
+- **TCB Verification**: Confirms that the TCB values in the attestation report match the VCEK's X.509 v3 extensions.
+
+## Docs
+Docs are available locally by running:
+- `cargo doc` for native docs
+- `cargo doc --target wasm32-unknown-unknown` for WASM builds
 
 ## Trademarks
 

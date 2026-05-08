@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install rust
         run: |
           rustup update stable && rustup default stable
@@ -27,12 +27,34 @@ jobs:
         run: |
           cargo fmt -- --check
 
+  docs-build:
+    name: Docs build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+
+      - name: Setup WASM tooling
+        run: |
+          rustup target add wasm32-unknown-unknown
+
+      - name: Native build docs
+        run: |
+          cargo doc
+
+      - name: WASM build docs
+        run: |
+          cargo doc --target wasm32-unknown-unknown
+
   wasm-build:
     name: WASM build
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install rust
         run: |
           rustup update stable && rustup default stable
@@ -41,7 +63,7 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           cargo install wasm-bindgen-cli
-          cargo install wasm-pack
+          cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Build WASM with WebCrypto crypto
         run: wasm-pack build --target web --no-default-features --features "crypto_webcrypto"
@@ -56,12 +78,57 @@ jobs:
         continue-on-error: true
         run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,kds"
 
+  web-verify-kernel-demo:
+    name: web-verify-kernel demo e2e
+    runs-on: ubuntu-latest
+    needs: wasm-build
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+
+      - name: Setup WASM tooling
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install wasm-bindgen-cli
+          cargo install wasm-pack --version 0.13.1 --locked
+
+      - name: Build WASM for the demo
+        run: wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install Playwright and browsers
+        working-directory: demos/web-verify-kernel/tests
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run e2e test
+        working-directory: demos/web-verify-kernel/tests
+        run: npm test
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-verify-kernel-playwright-report
+          path: |
+            demos/web-verify-kernel/tests/test-results/
+            demos/web-verify-kernel/tests/playwright-report/
+
   native-openssl:
     name: Native openssl
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install rust
         run: |
           rustup update stable && rustup default stable
@@ -81,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install rust
         run: |
           rustup update stable && rustup default stable
@@ -95,3 +162,65 @@ jobs:
       - name: Test with pure_rust + KDS (optional - may fail due to KDS rate limiting)
         continue-on-error: true
         run: cargo test --no-default-features --features "crypto_pure_rust,kds" -- --nocapture
+
+  coverage:
+    name: Test coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+          rustup component add llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Clean coverage artifacts
+        run: cargo llvm-cov clean --workspace
+
+      - name: Collect coverage data (openssl backend)
+        run: |
+          cargo llvm-cov --no-default-features --features "crypto_openssl" \
+            --no-report
+
+      - name: Collect coverage and combined LCOV report (pure_rust backend)
+        run: |
+          # --no-clean preserves the openssl profile data so the report
+          # summarizes coverage across both native backend test runs.
+          cargo llvm-cov --no-default-features --features "crypto_pure_rust" \
+            --no-clean --lcov --output-path lcov-combined.info \
+            --ignore-filename-regex '(^|/)(tests|demos|src/bin)/'
+
+      - name: Generate combined coverage summary
+        run: |
+          cargo llvm-cov report --summary-only \
+            --ignore-filename-regex '(^|/)(tests|demos|src/bin)/' \
+            | tee coverage-summary.txt
+          line_coverage=$(awk '/^TOTAL/ { print $10 }' coverage-summary.txt)
+          region_coverage=$(awk '/^TOTAL/ { print $4 }' coverage-summary.txt)
+          function_coverage=$(awk '/^TOTAL/ { print $7 }' coverage-summary.txt)
+          {
+            echo '## Test coverage (combined native backends)';
+            echo '';
+            echo "**Overall:** ${line_coverage} lines, ${region_coverage} regions, ${function_coverage} functions";
+            echo '';
+            echo '<details open>';
+            echo '<summary>Per-file coverage</summary>';
+            echo '';
+            echo '```';
+            cat coverage-summary.txt;
+            echo '```';
+            echo '';
+            echo '</details>';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-reports
+          path: |
+            lcov-combined.info
+            coverage-summary.txt

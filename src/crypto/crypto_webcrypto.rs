@@ -1,7 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#![cfg(all(target_arch = "wasm32", feature = "crypto_webcrypto"))]
+//! WASM WebCrypto-backed cryptographic backend.
+//!
+//! This backend uses the host runtime's `globalThis.crypto.subtle` API for
+//! asynchronous certificate-chain and SEV-SNP attestation report signature
+//! verification. Certificate parsing, encoding, and extension inspection use
+//! the shared pure-Rust X.509 parser. The runtime must provide WebCrypto with
+//! RSA-PSS/SHA-384 and ECDSA P-384/SHA-384 verification support.
 
 use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0]
+
+[1.0]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0
+
+- First stable release of the TEE attestation verification library.
+- Verifies AMD SEV-SNP attestation reports and collateral, including certificate chains, report signatures, and TCB values.
+- Supports native Rust consumers with the `crypto_openssl` and `crypto_pure_rust` backends.
+- Supports WebAssembly consumers with the `crypto_webcrypto` and `crypto_pure_rust` backends and generated `wasm-pack` wrapper output.
+- Provides offline verification with caller-supplied certificates and optional `kds` verification that fetches AMD KDS collateral.
+
 ## [0.1.1]
 
 [0.1.1]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-0.1.1

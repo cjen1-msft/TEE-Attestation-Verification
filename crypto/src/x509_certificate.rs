@@ -7,16 +7,11 @@ use x509_cert::der::{
 };
 use x509_cert::spki::AlgorithmIdentifierOwned;
 
-use super::Result;
+use super::{Result, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Certificate {
     inner: x509_cert::Certificate,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SignatureAlgorithm {
-    RsaPss,
 }
 
 impl Certificate {
@@ -77,25 +72,20 @@ impl Certificate {
         self.inner.signature.raw_bytes()
     }
 
-    pub fn signature_algorithm(&self) -> Result<SignatureAlgorithm> {
+    pub fn signature_algorithm(&self) -> Result<SignatureKeyAlgorithm> {
         parse_signature_algorithm(&self.inner.signature_algorithm)
-    }
-
-    #[cfg(feature = "crypto_pure_rust")]
-    pub fn subject_public_key_bytes(&self) -> &[u8] {
-        self.inner
-            .tbs_certificate
-            .subject_public_key_info
-            .subject_public_key
-            .raw_bytes()
     }
 }
 
-fn parse_signature_algorithm(algorithm: &AlgorithmIdentifierOwned) -> Result<SignatureAlgorithm> {
+fn parse_signature_algorithm(
+    algorithm: &AlgorithmIdentifierOwned,
+) -> Result<SignatureKeyAlgorithm> {
     let algorithm_ref = algorithm.owned_to_ref();
 
     if algorithm_ref.oid == oid::RSA_PSS {
-        return Ok(SignatureAlgorithm::RsaPss);
+        return Ok(SignatureKeyAlgorithm::RsaPss(
+            RsaPssSignatureKeyAlgorithm::Ps384,
+        ));
     }
 
     Err(format!("Unsupported signature algorithm OID: {}", algorithm_ref.oid).into())
@@ -111,7 +101,8 @@ mod oid {
 mod test {
     use x509_cert::der::Encode;
 
-    use super::{Certificate, SignatureAlgorithm};
+    use super::Certificate;
+    use crate::{RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm};
 
     const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
     const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
@@ -239,7 +230,7 @@ mod test {
         assert_eq!(
             cert.signature_algorithm()
                 .expect("Signature algorithm should parse"),
-            SignatureAlgorithm::RsaPss
+            SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384)
         );
     }
 }

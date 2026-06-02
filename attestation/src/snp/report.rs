@@ -261,11 +261,51 @@ impl TcbVersionRaw {
 #[derive(Debug, Clone, Copy, IntoBytes, FromBytes, Immutable, KnownLayout, Unaligned)]
 #[repr(C)]
 pub struct Signature {
-    /// Signature `r` component in the report's fixed-width encoding.
+    /// Signature `r` component in the report's little-endian padded encoding.
     pub r: [u8; 72],
-    /// Signature `s` component in the report's fixed-width encoding.
+    /// Signature `s` component in the report's little-endian padded encoding.
     pub s: [u8; 72],
     reserved: [u8; 512 - 144],
+}
+
+const ECDSA_P384_SCALAR_SIZE: usize = 48;
+const SNP_ECDSA_P384_SCALAR_SIZE: usize = 72;
+
+impl Signature {
+    fn to_ecdsa_fixed(self) -> crypto::Result<crypto::Signature<'static>> {
+        let r = snp_ecdsa_p384_scalar_to_fixed("r", &self.r)?;
+        let s = snp_ecdsa_p384_scalar_to_fixed("s", &self.s)?;
+
+        let mut fixed = Vec::with_capacity(ECDSA_P384_SCALAR_SIZE * 2);
+        fixed.extend_from_slice(&r);
+        fixed.extend_from_slice(&s);
+
+        Ok(crypto::Signature::new(
+            fixed,
+            crypto::SignatureEncoding::EcdsaFixed,
+        ))
+    }
+}
+
+fn snp_ecdsa_p384_scalar_to_fixed(
+    name: &str,
+    scalar: &[u8; SNP_ECDSA_P384_SCALAR_SIZE],
+) -> crypto::Result<[u8; ECDSA_P384_SCALAR_SIZE]> {
+    if scalar[ECDSA_P384_SCALAR_SIZE..]
+        .iter()
+        .any(|byte| *byte != 0)
+    {
+        return Err(format!(
+            "Invalid {name} scalar padding: upper 24 bytes must be zero for P-384 signatures"
+        )
+        .into());
+    }
+
+    let mut fixed: [u8; ECDSA_P384_SCALAR_SIZE] = scalar[..ECDSA_P384_SCALAR_SIZE]
+        .try_into()
+        .map_err(|_| format!("Invalid {name} scalar length"))?;
+    fixed.reverse();
+    Ok(fixed)
 }
 
 /// SEV-SNP attestation report (0x4A0 = 1184 bytes).
@@ -423,12 +463,15 @@ impl crypto::verifier::Sync<AttestationReport> for crate::Certificate {
     fn verify(&self, report: &AttestationReport) -> crypto::Result<()> {
         match report.signature_algo.get() {
             0x0001 => {
-                <crypto::Crypto as crypto::ReportSignatureVerifier>::verify_ecdsa_p384_sha384_signature(
-                    self,
-                    report.signed_bytes(),
-                    report.signature.r,
-                    report.signature.s,
-                )
+                let signature = report.signature.to_ecdsa_fixed()?;
+                let spki_der =
+                    <crypto::Crypto as crypto::CertificateBackend>::get_public_key(self)?;
+                let key = crypto::Crypto::key_from_spki_der(
+                    &spki_der,
+                    crypto::SignatureKeyAlgorithm::Ec(crypto::EcSignatureKeyAlgorithm::P384),
+                )?;
+
+                key.verify(report.signed_bytes(), signature)
             }
             _ => Err(format!(
                 "Unsupported signature algorithm: 0x{:04X}",
@@ -439,18 +482,28 @@ impl crypto::verifier::Sync<AttestationReport> for crate::Certificate {
     }
 }
 
-#[cfg(async_crypto)]
+#[cfg(all(async_crypto, sync_crypto))]
+impl crypto::verifier::Async<AttestationReport> for crate::Certificate {
+    async fn verify(&self, report: &AttestationReport) -> crypto::Result<()> {
+        <crate::Certificate as crypto::verifier::Sync<AttestationReport>>::verify(self, report)
+    }
+}
+
+#[cfg(all(async_crypto, not(sync_crypto)))]
 impl crypto::verifier::Async<AttestationReport> for crate::Certificate {
     async fn verify(&self, report: &AttestationReport) -> crypto::Result<()> {
         match report.signature_algo.get() {
             0x0001 => {
-                <crypto::Crypto as crypto::AsyncReportSignatureVerifier>::verify_ecdsa_p384_sha384_signature(
-                    self,
-                    report.signed_bytes(),
-                    report.signature.r,
-                    report.signature.s,
+                let signature = report.signature.to_ecdsa_fixed()?;
+                let spki_der =
+                    <crypto::Crypto as crypto::CertificateBackend>::get_public_key(self)?;
+                let key = crypto::Crypto::key_from_spki_der(
+                    &spki_der,
+                    crypto::SignatureKeyAlgorithm::Ec(crypto::EcSignatureKeyAlgorithm::P384),
                 )
-                .await
+                .await?;
+
+                key.verify(report.signed_bytes(), signature).await
             }
             _ => Err(format!(
                 "Unsupported signature algorithm: 0x{:04X}",

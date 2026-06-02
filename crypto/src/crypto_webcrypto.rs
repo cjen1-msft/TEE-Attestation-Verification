@@ -13,15 +13,39 @@ use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
+use super::signature as signature_types;
 use super::verifier::Async as AsyncVerifier;
-use super::x509_certificate::{Certificate as X509Certificate, SignatureAlgorithm};
-use super::{AsyncCryptoBackend, AsyncReportSignatureVerifier, CertificateBackend, Result};
+use super::x509_certificate::Certificate as X509Certificate;
+use super::{
+    AsyncCryptoBackend, CertificateBackend, EcSignatureKeyAlgorithm, Result,
+    RsaPssSignatureKeyAlgorithm, Signature, SignatureBackend, SignatureEncoding,
+    SignatureKeyAlgorithm,
+};
 
 pub struct Crypto;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Certificate {
     inner: X509Certificate,
+}
+
+pub struct Key {
+    key: CryptoKey,
+    algorithm: SignatureKeyAlgorithm,
+}
+
+impl SignatureBackend for Crypto {
+    type Key = Key;
+    type Signature<'a> = signature_types::Signature<'a>;
+}
+
+impl Crypto {
+    pub async fn key_from_spki_der(
+        spki_der: &[u8],
+        algorithm: SignatureKeyAlgorithm,
+    ) -> Result<Key> {
+        Key::from_spki_der(spki_der, algorithm).await
+    }
 }
 
 impl Certificate {
@@ -32,24 +56,13 @@ impl Certificate {
 
 impl AsyncVerifier<Certificate> for Certificate {
     async fn verify(&self, subject: &Certificate) -> Result<()> {
-        let subtle = subtle_crypto()?;
-        let key = import_certificate_signing_key(
-            &subtle,
-            &self.inner,
-            subject.inner.signature_algorithm()?,
-        )
-        .await?;
-        let signature = subject.inner.signature_bytes().to_vec();
+        let spki_der = self.inner.public_key_spki_der()?;
+        let key =
+            Crypto::key_from_spki_der(&spki_der, subject.inner.signature_algorithm()?).await?;
         let data = subject.inner.tbs_certificate_der()?;
 
-        verify_signature(
-            &subtle,
-            &key,
-            WebCryptoVerifyAlgorithm::RsaPssSha384,
-            &signature,
-            &data,
-        )
-        .await
+        key.verify(&data, Signature::raw(subject.inner.signature_bytes()))
+            .await
     }
 }
 
@@ -89,31 +102,29 @@ impl CertificateBackend for Crypto {
     }
 }
 
-impl AsyncReportSignatureVerifier for Crypto {
-    async fn verify_ecdsa_p384_sha384_signature(
-        cert: &Self::Certificate,
-        signed_bytes: &[u8],
-        r: [u8; 72],
-        s: [u8; 72],
-    ) -> Result<()> {
+impl Key {
+    pub async fn from_spki_der(spki_der: &[u8], algorithm: SignatureKeyAlgorithm) -> Result<Self> {
         let subtle = subtle_crypto()?;
-        let key = import_attestation_key(&subtle, &cert.inner).await?;
-        let signature = attestation_signature_p1363(r, s)?;
+        let params = import_params(algorithm)?;
+        let key = import_spki_key(&subtle, spki_der, &params).await?;
 
-        verify_signature(
-            &subtle,
-            &key,
-            WebCryptoVerifyAlgorithm::EcdsaP384Sha384,
-            &signature,
-            signed_bytes,
-        )
-        .await
+        Ok(Key { key, algorithm })
+    }
+
+    pub fn algorithm(&self) -> SignatureKeyAlgorithm {
+        self.algorithm
+    }
+
+    pub async fn verify(&self, signed_bytes: &[u8], signature: Signature<'_>) -> Result<()> {
+        let subtle = subtle_crypto()?;
+        let params = verify_params(self.algorithm)?;
+        let signature = webcrypto_signature_bytes(self.algorithm, signature)?;
+
+        verify_with_subtle(&subtle, &self.key, &params, &signature, signed_bytes).await
     }
 }
 
 impl AsyncCryptoBackend for Crypto {
-    type Certificate = Certificate;
-
     async fn verify_chain(
         trusted_certs: &[&Self::Certificate],
         untrusted_chain: &[&Self::Certificate],
@@ -146,34 +157,6 @@ impl AsyncCryptoBackend for Crypto {
     }
 }
 
-#[derive(Clone, Copy)]
-enum WebCryptoVerifyAlgorithm {
-    RsaPssSha384,
-    EcdsaP384Sha384,
-}
-
-async fn import_certificate_signing_key(
-    subtle: &SubtleCrypto,
-    cert: &X509Certificate,
-    signature_algorithm: SignatureAlgorithm,
-) -> Result<CryptoKey> {
-    let spki_der = cert.public_key_spki_der()?;
-    let params = match signature_algorithm {
-        SignatureAlgorithm::RsaPss => rsa_pss_import_params()?,
-    };
-
-    import_spki_key(subtle, &spki_der, &params).await
-}
-
-async fn import_attestation_key(
-    subtle: &SubtleCrypto,
-    cert: &X509Certificate,
-) -> Result<CryptoKey> {
-    let spki_der = cert.public_key_spki_der()?;
-    let params = ecdsa_import_params()?;
-    import_spki_key(subtle, &spki_der, &params).await
-}
-
 async fn import_spki_key(
     subtle: &SubtleCrypto,
     spki_der: &[u8],
@@ -193,20 +176,15 @@ async fn import_spki_key(
         .map_err(|_| "WebCrypto importKey did not return a CryptoKey".into())
 }
 
-async fn verify_signature(
+async fn verify_with_subtle(
     subtle: &SubtleCrypto,
     key: &CryptoKey,
-    algorithm: WebCryptoVerifyAlgorithm,
+    params: &Object,
     signature: &[u8],
     data: &[u8],
 ) -> Result<()> {
-    let params = match algorithm {
-        WebCryptoVerifyAlgorithm::RsaPssSha384 => rsa_pss_verify_params()?,
-        WebCryptoVerifyAlgorithm::EcdsaP384Sha384 => ecdsa_verify_params()?,
-    };
-
     let promise = subtle
-        .verify_with_object_and_u8_array_and_u8_array(&params, key, signature, data)
+        .verify_with_object_and_u8_array_and_u8_array(params, key, signature, data)
         .map_err(js_error)?;
     let verified = JsFuture::from(promise).await.map_err(js_error)?;
 
@@ -215,30 +193,6 @@ async fn verify_signature(
     } else {
         Err("WebCrypto signature verification failed".into())
     }
-}
-
-fn attestation_signature_p1363(r: [u8; 72], s: [u8; 72]) -> Result<Vec<u8>> {
-    let mut p1363 = Vec::with_capacity(96);
-
-    if r[48..].iter().any(|byte| *byte != 0) {
-        return Err(
-            "Invalid r scalar padding: upper 24 bytes must be zero for P-384 signatures".into(),
-        );
-    }
-    let mut r_bytes: [u8; 48] = r[..48].try_into().map_err(|_| "Invalid r scalar length")?;
-    r_bytes.reverse();
-
-    if s[48..].iter().any(|byte| *byte != 0) {
-        return Err(
-            "Invalid s scalar padding: upper 24 bytes must be zero for P-384 signatures".into(),
-        );
-    }
-    let mut s_bytes: [u8; 48] = s[..48].try_into().map_err(|_| "Invalid s scalar length")?;
-    s_bytes.reverse();
-
-    p1363.extend_from_slice(&r_bytes);
-    p1363.extend_from_slice(&s_bytes);
-    Ok(p1363)
 }
 
 fn subtle_crypto() -> Result<SubtleCrypto> {
@@ -258,20 +212,65 @@ fn subtle_crypto() -> Result<SubtleCrypto> {
         .map_err(|_| "globalThis.crypto.subtle is not a SubtleCrypto object".into())
 }
 
-fn rsa_pss_import_params() -> Result<Object> {
+fn import_params(algorithm: SignatureKeyAlgorithm) -> Result<Object> {
+    match algorithm {
+        SignatureKeyAlgorithm::Ec(EcSignatureKeyAlgorithm::P384) => ecdsa_import_params(),
+        SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384) => {
+            rsa_pss_import_params("SHA-384")
+        }
+        _ => Err(format!("Unsupported WebCrypto signature key algorithm: {algorithm:?}").into()),
+    }
+}
+
+fn verify_params(algorithm: SignatureKeyAlgorithm) -> Result<Object> {
+    match algorithm {
+        SignatureKeyAlgorithm::Ec(EcSignatureKeyAlgorithm::P384) => ecdsa_verify_params("SHA-384"),
+        SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384) => {
+            rsa_pss_verify_params(RsaPssSignatureKeyAlgorithm::Ps384.salt_len())
+        }
+        _ => Err(format!("Unsupported WebCrypto signature key algorithm: {algorithm:?}").into()),
+    }
+}
+
+fn webcrypto_signature_bytes(
+    algorithm: SignatureKeyAlgorithm,
+    signature: Signature<'_>,
+) -> Result<Vec<u8>> {
+    match algorithm {
+        SignatureKeyAlgorithm::Ec(EcSignatureKeyAlgorithm::P384) => {
+            if signature.encoding() != SignatureEncoding::EcdsaFixed {
+                return Err(
+                    "WebCrypto ECDSA verification requires fixed-width signature encoding".into(),
+                );
+            }
+
+            Ok(signature.ecdsa_p384_fixed_bytes()?.to_vec())
+        }
+        SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384) => {
+            if signature.encoding() != SignatureEncoding::Raw {
+                return Err("RSA-PSS verification requires raw signature encoding".into());
+            }
+
+            Ok(signature.bytes().to_vec())
+        }
+        _ => Err(format!("Unsupported WebCrypto signature key algorithm: {algorithm:?}").into()),
+    }
+}
+
+fn rsa_pss_import_params(hash: &str) -> Result<Object> {
     let params = Object::new();
     set_string(&params, "name", "RSA-PSS")?;
-    set_string(&params, "hash", "SHA-384")?;
+    set_string(&params, "hash", hash)?;
     Ok(params)
 }
 
-fn rsa_pss_verify_params() -> Result<Object> {
+fn rsa_pss_verify_params(salt_len: usize) -> Result<Object> {
     let params = Object::new();
     set_string(&params, "name", "RSA-PSS")?;
     Reflect::set(
         &params,
         &JsValue::from_str("saltLength"),
-        &JsValue::from_f64(48.0),
+        &JsValue::from_f64(salt_len as f64),
     )
     .map_err(js_error)?;
     Ok(params)
@@ -284,10 +283,10 @@ fn ecdsa_import_params() -> Result<Object> {
     Ok(params)
 }
 
-fn ecdsa_verify_params() -> Result<Object> {
+fn ecdsa_verify_params(hash: &str) -> Result<Object> {
     let params = Object::new();
     set_string(&params, "name", "ECDSA")?;
-    set_string(&params, "hash", "SHA-384")?;
+    set_string(&params, "hash", hash)?;
     Ok(params)
 }
 

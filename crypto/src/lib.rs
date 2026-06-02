@@ -10,6 +10,12 @@
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+mod signature;
+pub use signature::{
+    DigestAlgorithm, EcSignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm, SignatureEncoding,
+    SignatureKeyAlgorithm,
+};
+
 pub mod verifier {
     use super::Result;
 
@@ -22,6 +28,12 @@ pub mod verifier {
     pub trait Async<T> {
         fn verify(&self, data: &T) -> impl std::future::Future<Output = Result<()>>;
     }
+}
+
+/// Backend-internal trait for key and signature primitive types.
+pub trait SignatureBackend {
+    type Key;
+    type Signature<'a>;
 }
 
 /// Backend-internal trait for certificate parsing, encoding, and inspection.
@@ -51,7 +63,7 @@ pub trait CertificateBackend {
 }
 
 /// Backend-internal trait for certificate verification operations.
-pub trait CryptoBackend: CertificateBackend
+pub trait CryptoBackend: CertificateBackend + SignatureBackend
 where
     <Self as CertificateBackend>::Certificate:
         verifier::Sync<<Self as CertificateBackend>::Certificate>,
@@ -65,14 +77,16 @@ where
 }
 
 /// Backend-internal trait for asynchronous certificate verification operations.
-pub trait AsyncCryptoBackend {
-    type Certificate: Clone + verifier::Async<Self::Certificate>;
-
+pub trait AsyncCryptoBackend: CertificateBackend + SignatureBackend
+where
+    <Self as CertificateBackend>::Certificate:
+        verifier::Async<<Self as CertificateBackend>::Certificate>,
+{
     /// Verify a certificate chain from `trusted_certs` through `untrusted_chain` to `leaf`.
     fn verify_chain(
-        trusted_certs: &[&Self::Certificate],
-        untrusted_chain: &[&Self::Certificate],
-        leaf: &Self::Certificate,
+        trusted_certs: &[&<Self as CertificateBackend>::Certificate],
+        untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
+        leaf: &<Self as CertificateBackend>::Certificate,
     ) -> impl std::future::Future<Output = Result<()>>;
 }
 
@@ -82,48 +96,12 @@ where
     <C as CertificateBackend>::Certificate: verifier::Sync<<C as CertificateBackend>::Certificate>
         + verifier::Async<<C as CertificateBackend>::Certificate>,
 {
-    type Certificate = <C as CertificateBackend>::Certificate;
-
     async fn verify_chain(
-        trusted_certs: &[&Self::Certificate],
-        untrusted_chain: &[&Self::Certificate],
-        leaf: &Self::Certificate,
+        trusted_certs: &[&<Self as CertificateBackend>::Certificate],
+        untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
+        leaf: &<Self as CertificateBackend>::Certificate,
     ) -> Result<()> {
         <C as CryptoBackend>::verify_chain(trusted_certs, untrusted_chain, leaf)
-    }
-}
-
-/// Backend operation for verifying SEV-SNP report ECDSA P-384/SHA-384 signatures.
-pub trait ReportSignatureVerifier: CertificateBackend {
-    fn verify_ecdsa_p384_sha384_signature(
-        cert: &Self::Certificate,
-        signed_bytes: &[u8],
-        r: [u8; 72],
-        s: [u8; 72],
-    ) -> Result<()>;
-}
-
-/// Asynchronous backend operation for verifying SEV-SNP report ECDSA P-384/SHA-384 signatures.
-pub trait AsyncReportSignatureVerifier: CertificateBackend {
-    fn verify_ecdsa_p384_sha384_signature(
-        cert: &Self::Certificate,
-        signed_bytes: &[u8],
-        r: [u8; 72],
-        s: [u8; 72],
-    ) -> impl std::future::Future<Output = Result<()>>;
-}
-
-impl<C> AsyncReportSignatureVerifier for C
-where
-    C: ReportSignatureVerifier,
-{
-    async fn verify_ecdsa_p384_sha384_signature(
-        cert: &Self::Certificate,
-        signed_bytes: &[u8],
-        r: [u8; 72],
-        s: [u8; 72],
-    ) -> Result<()> {
-        <C as ReportSignatureVerifier>::verify_ecdsa_p384_sha384_signature(cert, signed_bytes, r, s)
     }
 }
 
@@ -148,6 +126,12 @@ pub type Crypto = crypto_webcrypto::Crypto;
 
 /// The certificate type for the active crypto backend.
 pub type Certificate = <Crypto as CertificateBackend>::Certificate;
+
+/// The key type for the active crypto backend.
+pub type Key = <Crypto as SignatureBackend>::Key;
+
+/// The signature type for the active crypto backend.
+pub type Signature<'a> = <Crypto as SignatureBackend>::Signature<'a>;
 
 #[cfg(test)]
 mod test {

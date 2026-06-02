@@ -11,14 +11,15 @@ the rendered status surfaces `ErrorCode::InvalidRootCertificate` (102).
 
 ### 1. Build the WASM bundle
 
-From the **repository root**, build the WASM package directly into the demo
+From the repository root, build the WASM package directly into the demo
 directory (so the page's `./pkg/...` import resolves):
 
 ```sh
+cd attestation
 wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
 ```
 
-Rerun this whenever you change Rust sources under `src/`.
+Rerun this whenever you change Rust sources under `attestation/src/` or `crypto/src/`.
 
 ### 2. Install JS dependencies
 

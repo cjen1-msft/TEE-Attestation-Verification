@@ -15,8 +15,7 @@ use wasm_bindgen_futures::JsFuture;
 
 use super::verifier::Async as AsyncVerifier;
 use super::x509_certificate::{Certificate as X509Certificate, SignatureAlgorithm};
-use super::{AsyncCryptoBackend, CertificateBackend, Result};
-use crate::snp::report::{AttestationReport, Signature};
+use super::{AsyncCryptoBackend, AsyncReportSignatureVerifier, CertificateBackend, Result};
 
 pub struct Crypto;
 
@@ -49,23 +48,6 @@ impl AsyncVerifier<Certificate> for Certificate {
             WebCryptoVerifyAlgorithm::RsaPssSha384,
             &signature,
             &data,
-        )
-        .await
-    }
-}
-
-impl AsyncVerifier<AttestationReport> for Certificate {
-    async fn verify(&self, report: &AttestationReport) -> Result<()> {
-        let subtle = subtle_crypto()?;
-        let key = import_attestation_key(&subtle, &self.inner).await?;
-        let signature = attestation_signature_p1363(report.signature)?;
-
-        verify_signature(
-            &subtle,
-            &key,
-            WebCryptoVerifyAlgorithm::EcdsaP384Sha384,
-            &signature,
-            report.signed_bytes(),
         )
         .await
     }
@@ -104,6 +86,28 @@ impl CertificateBackend for Crypto {
 
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>> {
         cert.inner.get_extension_value_by_oid(oid)
+    }
+}
+
+impl AsyncReportSignatureVerifier for Crypto {
+    async fn verify_ecdsa_p384_sha384_signature(
+        cert: &Self::Certificate,
+        signed_bytes: &[u8],
+        r: [u8; 72],
+        s: [u8; 72],
+    ) -> Result<()> {
+        let subtle = subtle_crypto()?;
+        let key = import_attestation_key(&subtle, &cert.inner).await?;
+        let signature = attestation_signature_p1363(r, s)?;
+
+        verify_signature(
+            &subtle,
+            &key,
+            WebCryptoVerifyAlgorithm::EcdsaP384Sha384,
+            &signature,
+            signed_bytes,
+        )
+        .await
     }
 }
 
@@ -213,27 +217,23 @@ async fn verify_signature(
     }
 }
 
-fn attestation_signature_p1363(signature: Signature) -> Result<Vec<u8>> {
+fn attestation_signature_p1363(r: [u8; 72], s: [u8; 72]) -> Result<Vec<u8>> {
     let mut p1363 = Vec::with_capacity(96);
 
-    if signature.r[48..].iter().any(|byte| *byte != 0) {
+    if r[48..].iter().any(|byte| *byte != 0) {
         return Err(
             "Invalid r scalar padding: upper 24 bytes must be zero for P-384 signatures".into(),
         );
     }
-    let mut r_bytes: [u8; 48] = signature.r[..48]
-        .try_into()
-        .map_err(|_| "Invalid r scalar length")?;
+    let mut r_bytes: [u8; 48] = r[..48].try_into().map_err(|_| "Invalid r scalar length")?;
     r_bytes.reverse();
 
-    if signature.s[48..].iter().any(|byte| *byte != 0) {
+    if s[48..].iter().any(|byte| *byte != 0) {
         return Err(
             "Invalid s scalar padding: upper 24 bytes must be zero for P-384 signatures".into(),
         );
     }
-    let mut s_bytes: [u8; 48] = signature.s[..48]
-        .try_into()
-        .map_err(|_| "Invalid s scalar length")?;
+    let mut s_bytes: [u8; 48] = s[..48].try_into().map_err(|_| "Invalid s scalar length")?;
     s_bytes.reverse();
 
     p1363.extend_from_slice(&r_bytes);
@@ -326,40 +326,4 @@ extern "C" {
         signature: &[u8],
         data: &[u8],
     ) -> std::result::Result<Promise, JsValue>;
-}
-
-#[cfg(test)]
-mod test {
-    use super::Crypto;
-    use crate::crypto::{verifier::Async as AsyncVerifier, AsyncCryptoBackend, CertificateBackend};
-    use crate::AttestationReport;
-    use wasm_bindgen_test::wasm_bindgen_test;
-    use zerocopy::{IntoBytes, TryFromBytes};
-
-    const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
-    const MILAN_REPORT: &[u8] = include_bytes!("test_data/milan_attestation_report.bin");
-
-    fn cert(pem: &[u8]) -> <Crypto as AsyncCryptoBackend>::Certificate {
-        Crypto::from_pem(pem).unwrap()
-    }
-
-    #[wasm_bindgen_test]
-    async fn non_zero_scalar_padding_fails() {
-        let vcek = cert(MILAN_VCEK);
-        let mut report: AttestationReport = AttestationReport::try_read_from_bytes(MILAN_REPORT)
-            .expect("Failed to parse attestation report")
-            .clone();
-
-        report.signature.r[60] = 1;
-
-        let error = vcek
-            .verify(&report)
-            .await
-            .expect_err("Non-zero scalar padding should not verify");
-
-        assert!(
-            error.to_string().contains("Invalid r scalar padding"),
-            "Expected scalar padding error, got: {error:?}"
-        );
-    }
 }

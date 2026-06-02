@@ -55,7 +55,7 @@
 //! submodule contains the caller-provided-certificate WASM API when building
 //! for `wasm32`.
 
-pub(crate) mod crypto;
+pub(crate) use crypto;
 pub mod pinned_arks;
 pub mod snp;
 pub mod utils;
@@ -99,7 +99,7 @@ pub mod wasm;
 mod tests {
     use crate::crypto::CertificateBackend;
 
-    const MILAN_VCEK: &[u8] = include_bytes!("crypto/test_data/milan_vcek.pem");
+    const MILAN_VCEK: &[u8] = include_bytes!("../tests/test_data/milan_vcek.pem");
 
     #[test]
     fn certificate_from_der_parses_der_encoded_certificate() {

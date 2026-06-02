@@ -9,11 +9,12 @@ than loading its own WASM module.
 
 ## Build and run
 
-1. From the **repository root**, build the WASM package with the WebCrypto
+1. From the repository root, build the WASM package with the WebCrypto
    backend, emitting `pkg/` directly inside this demo directory (which is
    what `index.html` imports via `./pkg/...`):
 
    ```sh
+   cd attestation
    wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
    ```
 

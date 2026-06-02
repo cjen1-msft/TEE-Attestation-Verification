@@ -25,7 +25,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          cargo fmt -- --check
+          cargo fmt --all -- --check
 
   docs-build:
     name: Docs build
@@ -43,11 +43,11 @@ jobs:
 
       - name: Native build docs
         run: |
-          cargo doc
+          cargo doc -p tee-attestation-verification-lib
 
       - name: WASM build docs
         run: |
-          cargo doc --target wasm32-unknown-unknown
+          cargo doc -p tee-attestation-verification-lib --target wasm32-unknown-unknown
 
   wasm-build:
     name: WASM build
@@ -66,16 +66,20 @@ jobs:
           cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Build WASM with WebCrypto crypto
+        working-directory: attestation
         run: wasm-pack build --target web --no-default-features --features "crypto_webcrypto"
 
       - name: Test WASM offline
+        working-directory: attestation
         run: wasm-pack test --node --no-default-features --features "crypto_pure_rust"
 
       - name: Test WASM offline with WebCrypto backend
+        working-directory: attestation
         run: wasm-pack test --node --no-default-features --features "crypto_webcrypto"
 
       - name: Test WASM with KDS (optional - may fail due to KDS rate limiting)
         continue-on-error: true
+        working-directory: attestation
         run: wasm-pack test --node --no-default-features --features "crypto_pure_rust,kds"
 
   web-verify-kernel-demo:
@@ -97,6 +101,7 @@ jobs:
           cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Build WASM for the demo
+        working-directory: attestation
         run: wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
 
       - name: Setup Node
@@ -105,13 +110,13 @@ jobs:
           node-version: "20"
 
       - name: Install Playwright and browsers
-        working-directory: demos/web-verify-kernel/tests
+        working-directory: attestation/demos/web-verify-kernel/tests
         run: |
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
 
       - name: Run e2e test
-        working-directory: demos/web-verify-kernel/tests
+        working-directory: attestation/demos/web-verify-kernel/tests
         run: npm test
 
       - name: Upload failure artifacts
@@ -120,8 +125,8 @@ jobs:
         with:
           name: web-verify-kernel-playwright-report
           path: |
-            demos/web-verify-kernel/tests/test-results/
-            demos/web-verify-kernel/tests/playwright-report/
+            attestation/demos/web-verify-kernel/tests/test-results/
+            attestation/demos/web-verify-kernel/tests/playwright-report/
 
   native-openssl:
     name: Native openssl
@@ -134,14 +139,14 @@ jobs:
           rustup update stable && rustup default stable
 
       - name: Build with openssl
-        run: cargo build --no-default-features --features "crypto_openssl"
+        run: cargo build -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl"
 
       - name: Test with openssl
-        run: cargo test --no-default-features --features "crypto_openssl" -- --nocapture
+        run: cargo test -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl" -- --nocapture
 
       - name: Test with openssl + KDS (optional - may fail due to KDS rate limiting)
         continue-on-error: true
-        run: cargo test --no-default-features --features "crypto_openssl,kds" -- --nocapture
+        run: cargo test -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl,kds" -- --nocapture
 
   native-pure-rust:
     name: Native pure-rust
@@ -154,14 +159,14 @@ jobs:
           rustup update stable && rustup default stable
 
       - name: Build with pure_rust crypto
-        run: cargo build --no-default-features --features "crypto_pure_rust"
+        run: cargo build -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust"
 
       - name: Test with pure_rust crypto
-        run: cargo test --no-default-features --features "crypto_pure_rust" -- --nocapture
+        run: cargo test -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust" -- --nocapture
 
       - name: Test with pure_rust + KDS (optional - may fail due to KDS rate limiting)
         continue-on-error: true
-        run: cargo test --no-default-features --features "crypto_pure_rust,kds" -- --nocapture
+        run: cargo test -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust,kds" -- --nocapture
 
   coverage:
     name: Test coverage
@@ -183,20 +188,21 @@ jobs:
 
       - name: Collect coverage data (openssl backend)
         run: |
-          cargo llvm-cov --no-default-features --features "crypto_openssl" \
+          cargo llvm-cov -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl" \
             --no-report
 
       - name: Collect coverage and combined LCOV report (pure_rust backend)
         run: |
           # --no-clean preserves the openssl profile data so the report
           # summarizes coverage across both native backend test runs.
-          cargo llvm-cov --no-default-features --features "crypto_pure_rust" \
+          cargo llvm-cov -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust" \
             --no-clean --lcov --output-path lcov-combined.info \
             --ignore-filename-regex '(^|/)(tests|demos|src/bin)/'
 
       - name: Generate combined coverage summary
         run: |
           cargo llvm-cov report --summary-only \
+            -p tee-attestation-verification-lib \
             --ignore-filename-regex '(^|/)(tests|demos|src/bin)/' \
             | tee coverage-summary.txt
           line_coverage=$(awk '/^TOTAL/ { print $10 }' coverage-summary.txt)

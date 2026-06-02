@@ -18,9 +18,9 @@ path = "src/lib.rs"
 
 [features]
 default = ["crypto_openssl", "crypto_webcrypto"]
-crypto_openssl = ["dep:foreign-types", "dep:openssl", "dep:openssl-sys"]
-crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa", "dep:sha2", "dep:x509-cert"]
-crypto_webcrypto = ["dep:x509-cert"]
+crypto_openssl = ["crypto/crypto_openssl"]
+crypto_pure_rust = ["crypto/crypto_pure_rust"]
+crypto_webcrypto = ["crypto/crypto_webcrypto"]
 kds = ["dep:curl", "dep:tokio"]
 
 
@@ -37,13 +37,7 @@ env_logger = "0.11"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [dependencies]
-# Crypto
-foreign-types = { version = "0.3", optional = true }
-ecdsa = { version = "0.16", features = ["der", "verifying"], optional = true }
-p384 = { version = "0.13", features = ["ecdsa"], optional = true}
-rsa = { version = "0.9", optional = true }
-sha2 = {version = "0.10", optional = true}
-x509-cert = { version = "0.2", optional = true }
+crypto = { package = "tee-attestation-verification-crypto", path = "../crypto", default-features = false }
 zerocopy = {version = "0.8.31", features = ["derive"]}
 
 # KDS (online certificate fetching) dependencies
@@ -51,8 +45,6 @@ log = { version = "0.4" }
 
 # Native deps
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-openssl = { version = "0.10", optional = true }
-openssl-sys = { version = "0.9", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true}
 curl = { version = "0.4", optional = true }
 

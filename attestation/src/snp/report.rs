@@ -418,14 +418,244 @@ impl AttestationReport {
     }
 }
 
+#[cfg(sync_crypto)]
+impl crypto::verifier::Sync<AttestationReport> for crate::Certificate {
+    fn verify(&self, report: &AttestationReport) -> crypto::Result<()> {
+        match report.signature_algo.get() {
+            0x0001 => {
+                <crypto::Crypto as crypto::ReportSignatureVerifier>::verify_ecdsa_p384_sha384_signature(
+                    self,
+                    report.signed_bytes(),
+                    report.signature.r,
+                    report.signature.s,
+                )
+            }
+            _ => Err(format!(
+                "Unsupported signature algorithm: 0x{:04X}",
+                report.signature_algo.get()
+            )
+            .into()),
+        }
+    }
+}
+
+#[cfg(async_crypto)]
+impl crypto::verifier::Async<AttestationReport> for crate::Certificate {
+    async fn verify(&self, report: &AttestationReport) -> crypto::Result<()> {
+        match report.signature_algo.get() {
+            0x0001 => {
+                <crypto::Crypto as crypto::AsyncReportSignatureVerifier>::verify_ecdsa_p384_sha384_signature(
+                    self,
+                    report.signed_bytes(),
+                    report.signature.r,
+                    report.signature.s,
+                )
+                .await
+            }
+            _ => Err(format!(
+                "Unsupported signature algorithm: 0x{:04X}",
+                report.signature_algo.get()
+            )
+            .into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::{CertificateBackend, Crypto};
     use std::mem::size_of;
+
+    const MILAN_VCEK: &[u8] = include_bytes!("../../tests/test_data/milan_vcek.pem");
+    const GENOA_VCEK: &[u8] = include_bytes!("../../tests/test_data/genoa_vcek.pem");
+    const MILAN_REPORT: &[u8] =
+        include_bytes!("../../tests/test_data/milan_attestation_report.bin");
+
+    fn cert(pem: &[u8]) -> crate::Certificate {
+        Crypto::from_pem(pem).unwrap()
+    }
+
+    fn report() -> AttestationReport {
+        AttestationReport::try_read_from_bytes(MILAN_REPORT)
+            .expect("Failed to parse attestation report")
+            .clone()
+    }
 
     #[test]
     fn attestation_report_size() {
         assert_eq!(size_of::<AttestationReport>(), 0x4A0);
+    }
+
+    #[cfg(sync_crypto)]
+    mod sync_verifier_tests {
+        use super::*;
+        use crate::crypto::verifier::Sync as Verifier;
+
+        #[test]
+        fn attestation_report_signature_verifies() {
+            cert(MILAN_VCEK).verify(&report()).unwrap();
+        }
+
+        #[test]
+        fn corrupted_report_fails_to_verify() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            let report_bytes = report.as_mut_bytes();
+            report_bytes[100] ^= 0xFF;
+
+            vcek.verify(&report)
+                .expect_err("Corrupted report should not verify");
+        }
+
+        #[test]
+        fn corrupt_signature_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.r[0] ^= 0xFF;
+
+            vcek.verify(&report)
+                .expect_err("Corrupt signature should not verify");
+        }
+
+        #[test]
+        fn zeroed_signature_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.r.fill(0);
+            report.signature.s.fill(0);
+
+            vcek.verify(&report)
+                .expect_err("Zeroed signature should not verify");
+        }
+
+        #[cfg(all(feature = "crypto_pure_rust", not(feature = "crypto_openssl")))]
+        #[test]
+        fn nonzero_r_scalar_padding_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.r[48] = 1;
+
+            let err = vcek
+                .verify(&report)
+                .expect_err("Nonzero r scalar padding should not verify");
+            assert!(
+                err.to_string().contains("Invalid r scalar padding"),
+                "expected r scalar padding error, got: {err}"
+            );
+        }
+
+        #[cfg(all(feature = "crypto_pure_rust", not(feature = "crypto_openssl")))]
+        #[test]
+        fn nonzero_s_scalar_padding_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.s[48] = 1;
+
+            let err = vcek
+                .verify(&report)
+                .expect_err("Nonzero s scalar padding should not verify");
+            assert!(
+                err.to_string().contains("Invalid s scalar padding"),
+                "expected s scalar padding error, got: {err}"
+            );
+        }
+
+        #[test]
+        fn wrong_cert_rejects_signature() {
+            cert(GENOA_VCEK)
+                .verify(&report())
+                .expect_err("Wrong cert should not verify report");
+        }
+    }
+
+    #[cfg(all(async_crypto, not(sync_crypto)))]
+    mod async_verifier_tests {
+        use super::*;
+        use crate::crypto::verifier::Async as Verifier;
+
+        #[cfg(target_arch = "wasm32")]
+        use wasm_bindgen_test::wasm_bindgen_test;
+
+        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+        async fn attestation_report_signature_verifies() {
+            cert(MILAN_VCEK).verify(&report()).await.unwrap();
+        }
+
+        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+        async fn corrupted_report_fails_to_verify() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            let report_bytes = report.as_mut_bytes();
+            report_bytes[100] ^= 0xFF;
+
+            vcek.verify(&report)
+                .await
+                .expect_err("Corrupted report should not verify");
+        }
+
+        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+        async fn corrupt_signature_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.r[0] ^= 0xFF;
+
+            vcek.verify(&report)
+                .await
+                .expect_err("Corrupt signature should not verify");
+        }
+
+        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+        async fn zeroed_signature_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.r.fill(0);
+            report.signature.s.fill(0);
+
+            vcek.verify(&report)
+                .await
+                .expect_err("Zeroed signature should not verify");
+        }
+
+        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+        async fn non_zero_scalar_padding_fails() {
+            let vcek = cert(MILAN_VCEK);
+            let mut report = report();
+
+            report.signature.r[60] = 1;
+
+            let error = vcek
+                .verify(&report)
+                .await
+                .expect_err("Non-zero scalar padding should not verify");
+
+            assert!(
+                error.to_string().contains("Invalid r scalar padding"),
+                "Expected scalar padding error, got: {error:?}"
+            );
+        }
+
+        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+        async fn wrong_cert_rejects_signature() {
+            cert(GENOA_VCEK)
+                .verify(&report())
+                .await
+                .expect_err("Wrong cert should not verify report");
+        }
     }
 
     #[test]

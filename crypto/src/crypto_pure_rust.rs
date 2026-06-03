@@ -8,6 +8,10 @@
 //! certificate parsing, certificate-chain signature checks, and SEV-SNP
 //! attestation report signature verification.
 
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::SystemTime;
+
 use p384::ecdsa::{Signature as EcdsaSignature, VerifyingKey as EcdsaVerifyingKey};
 use rsa::{
     pkcs8::DecodePublicKey,
@@ -45,11 +49,8 @@ impl Crypto {
 
 impl Verifier<Certificate> for Certificate {
     fn verify(&self, subject: &Certificate) -> Result<()> {
-        let tbs_bytes = subject.tbs_certificate_der()?;
-        let issuer_spki = self.public_key_spki_der()?;
-        let key = Crypto::key_from_spki_der(&issuer_spki, subject.signature_algorithm()?)?;
-
-        key.verify(&tbs_bytes, Signature::raw(subject.signature_bytes()))
+        self.validate_trust_anchor_for_subject(subject, now_unix_duration()?)?;
+        verify_certificate_signature(self, subject)
     }
 }
 
@@ -97,23 +98,41 @@ impl CryptoBackend for Crypto {
         untrusted_chain: &[&Certificate],
         leaf: &Certificate,
     ) -> Result<()> {
-        let untrusted_chain = untrusted_chain.iter().chain(std::iter::once(&leaf));
-        let mut prev: Option<&Certificate> = None;
-        for cert in untrusted_chain {
-            if let Some(issuer) = prev {
-                <Certificate as Verifier<Certificate>>::verify(issuer, *cert)?;
-            } else {
-                trusted_certs
-                    .iter()
-                    .find(|trusted| {
-                        <Certificate as Verifier<Certificate>>::verify(*trusted, *cert).is_ok()
-                    })
-                    .ok_or("Failed to verify certificate: no matching trusted issuer")?;
-            }
-            prev = Some(cert);
-        }
-        Ok(())
+        Certificate::verify_ordered_chain(
+            trusted_certs,
+            untrusted_chain,
+            leaf,
+            now_unix_duration()?,
+            verify_certificate_signature,
+        )
     }
+}
+
+fn now_unix_duration() -> Result<Duration> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let milliseconds = js_sys::Date::now();
+        if !milliseconds.is_finite() || milliseconds < 0.0 {
+            return Err(format!("Invalid JavaScript Date.now() value: {milliseconds}").into());
+        }
+
+        Ok(Duration::from_secs_f64(milliseconds / 1000.0))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|e| format!("System time is before UNIX epoch: {e:?}").into())
+    }
+}
+
+fn verify_certificate_signature(issuer: &Certificate, subject: &Certificate) -> Result<()> {
+    let tbs_bytes = subject.tbs_certificate_der()?;
+    let issuer_spki = issuer.public_key_spki_der()?;
+    let key = Crypto::key_from_spki_der(&issuer_spki, subject.signature_algorithm()?)?;
+
+    key.verify(&tbs_bytes, Signature::raw(subject.signature_bytes()))
 }
 
 impl Key {

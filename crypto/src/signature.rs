@@ -3,8 +3,16 @@
 
 use std::borrow::Cow;
 
+#[cfg(any(
+    crypto_backend = "crypto_pure_rust",
+    crypto_backend = "crypto_webcrypto"
+))]
 use crate::Result;
 
+#[cfg(any(
+    crypto_backend = "crypto_pure_rust",
+    crypto_backend = "crypto_webcrypto"
+))]
 const P384_SCALAR_SIZE: usize = 48;
 
 /// Digest algorithm used by a signature operation.
@@ -127,6 +135,10 @@ impl<'a> Signature<'a> {
         self.encoding
     }
 
+    #[cfg(any(
+        crypto_backend = "crypto_pure_rust",
+        crypto_backend = "crypto_webcrypto"
+    ))]
     pub(crate) fn ecdsa_p384_fixed_bytes(&self) -> Result<&[u8]> {
         match self.encoding {
             SignatureEncoding::EcdsaFixed => {

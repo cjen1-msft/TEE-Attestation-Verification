@@ -9,6 +9,8 @@
 //! the shared pure-Rust X.509 parser. The runtime must provide WebCrypto with
 //! RSA-PSS/SHA-384 and ECDSA P-384/SHA-384 verification support.
 
+use std::time::Duration;
+
 use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -56,13 +58,9 @@ impl Certificate {
 
 impl AsyncVerifier<Certificate> for Certificate {
     async fn verify(&self, subject: &Certificate) -> Result<()> {
-        let spki_der = self.inner.public_key_spki_der()?;
-        let key =
-            Crypto::key_from_spki_der(&spki_der, subject.inner.signature_algorithm()?).await?;
-        let data = subject.inner.tbs_certificate_der()?;
-
-        key.verify(&data, Signature::raw(subject.inner.signature_bytes()))
-            .await
+        self.inner
+            .validate_trust_anchor_for_subject(&subject.inner, now_unix_duration()?)?;
+        self.verify_signature(subject).await
     }
 }
 
@@ -130,31 +128,51 @@ impl AsyncCryptoBackend for Crypto {
         untrusted_chain: &[&Self::Certificate],
         leaf: &Self::Certificate,
     ) -> Result<()> {
-        let untrusted_chain = untrusted_chain.iter().chain(std::iter::once(&leaf));
-        let mut prev: Option<&Certificate> = None;
+        let trusted_x509 = trusted_certs
+            .iter()
+            .map(|cert| &cert.inner)
+            .collect::<Vec<_>>();
+        let untrusted_x509 = untrusted_chain
+            .iter()
+            .map(|cert| &cert.inner)
+            .collect::<Vec<_>>();
 
-        for &cert in untrusted_chain {
-            if let Some(issuer) = prev {
-                issuer.verify(cert).await?;
-            } else {
-                let mut verified = false;
-                for &trusted in trusted_certs {
-                    if trusted.verify(cert).await.is_ok() {
-                        verified = true;
-                        break;
-                    }
-                }
-
-                if !verified {
-                    return Err("Failed to verify certificate: no matching trusted issuer".into());
-                }
-            }
-
-            prev = Some(cert);
-        }
-
-        Ok(())
+        X509Certificate::verify_ordered_chain_async(
+            &trusted_x509,
+            &untrusted_x509,
+            &leaf.inner,
+            now_unix_duration()?,
+            |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
+        )
+        .await
     }
+}
+
+impl Certificate {
+    async fn verify_signature(&self, subject: &Certificate) -> Result<()> {
+        verify_x509_certificate_signature(&self.inner, &subject.inner).await
+    }
+}
+
+async fn verify_x509_certificate_signature(
+    issuer: &X509Certificate,
+    subject: &X509Certificate,
+) -> Result<()> {
+    let spki_der = issuer.public_key_spki_der()?;
+    let key = Crypto::key_from_spki_der(&spki_der, subject.signature_algorithm()?).await?;
+    let data = subject.tbs_certificate_der()?;
+
+    key.verify(&data, Signature::raw(subject.signature_bytes()))
+        .await
+}
+
+fn now_unix_duration() -> Result<Duration> {
+    let milliseconds = js_sys::Date::now();
+    if !milliseconds.is_finite() || milliseconds < 0.0 {
+        return Err(format!("Invalid JavaScript Date.now() value: {milliseconds}").into());
+    }
+
+    Ok(Duration::from_secs_f64(milliseconds / 1000.0))
 }
 
 async fn import_spki_key(

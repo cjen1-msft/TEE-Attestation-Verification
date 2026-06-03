@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use std::time::Duration;
-#[cfg(async_crypto)]
+#[cfg(crypto_backend = "crypto_webcrypto")]
 use std::{future::Future, pin::Pin};
 
 use pkcs1::{RsaPssParams, TrailerField};
@@ -10,7 +10,7 @@ use x509_cert::der::{
     asn1::AnyRef, oid::ObjectIdentifier, pem::LineEnding, referenced::OwnedToRef, Decode,
     DecodePem, Encode, EncodePem,
 };
-use x509_cert::ext::pkix::{BasicConstraints, KeyUsage};
+use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage};
 use x509_cert::spki::AlgorithmIdentifierOwned;
 
 use super::{Result, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm};
@@ -20,7 +20,196 @@ pub struct Certificate {
     inner: x509_cert::Certificate,
 }
 
+#[cfg(sync_crypto)]
+pub fn verify_ordered_chain(
+    mut verify_signature: impl FnMut(&Certificate, &Certificate) -> Result<()>,
+    root_trust_anchor: &Certificate,
+    untrusted_chain: &[&Certificate],
+    leaf: &Certificate,
+    unix_time: Duration,
+) -> Result<()> {
+    // Before checking metadata, verify that the chain is properly ordered and that signatures are valid
+    let full_chain = untrusted_chain
+        .iter()
+        .copied()
+        .chain(std::iter::once(leaf))
+        .collect::<Vec<_>>();
+    verify_signature(root_trust_anchor, full_chain[0])
+        .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    for edge in full_chain.windows(2) {
+        let issuer = edge[0];
+        let subject = edge[1];
+        verify_signature(issuer, subject)
+            .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    }
+
+    // After verifying signatures, check metadata constraints on the chain
+    validate_certificate_chain_metadata(root_trust_anchor, untrusted_chain, leaf, unix_time)
+}
+
+#[cfg(crypto_backend = "crypto_webcrypto")]
+pub async fn verify_ordered_chain_async<F>(
+    mut verify_signature: F,
+    root_trust_anchor: &Certificate,
+    untrusted_chain: &[&Certificate],
+    leaf: &Certificate,
+    unix_time: Duration,
+) -> Result<()>
+where
+    F: for<'a> FnMut(
+        &'a Certificate,
+        &'a Certificate,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>>,
+{
+    // Before checking metadata, verify that the chain is properly ordered and that signatures are valid
+    let full_chain = untrusted_chain
+        .iter()
+        .copied()
+        .chain(std::iter::once(leaf))
+        .collect::<Vec<_>>();
+    verify_signature(root_trust_anchor, full_chain[0])
+        .await
+        .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    for edge in full_chain.windows(2) {
+        let issuer = edge[0];
+        let subject = edge[1];
+        verify_signature(issuer, subject)
+            .await
+            .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    }
+
+    // After verifying signatures, check metadata constraints on the chain
+    validate_certificate_chain_metadata(root_trust_anchor, untrusted_chain, leaf, unix_time)
+}
+
+fn validate_certificate_chain_metadata(
+    root_trust_anchor: &Certificate,
+    untrusted_chain: &[&Certificate],
+    leaf: &Certificate,
+    unix_time: Duration,
+) -> Result<()> {
+    // skip initial-permitted-subtrees and initial-excluded-subtrees
+    let mut prev_cert = root_trust_anchor;
+    let mut max_path_len = untrusted_chain.len() + 2; // root + untrusted_chain + leaf
+
+    if !root_trust_anchor.is_self_issued() {
+        return Err(format!("The trust-anchor certificate must be self-issued").into());
+    }
+
+    let rchain = std::iter::once((&root_trust_anchor, true, false));
+    let uchain = untrusted_chain.iter().map(|cert| (cert, false, false));
+    let lchain = std::iter::once((&leaf, false, true));
+    let full_chain = rchain.chain(uchain).chain(lchain);
+    for (cert, _is_root, is_leaf) in full_chain {
+        let cert_subject = &cert.inner.tbs_certificate.subject;
+
+        // Validate that only supported critical extensions are present
+        cert.validate_supported_critical_extensions().map_err(|e| {
+            format!("Certificate for {cert_subject} contains unsupported critical extension: {e}")
+        })?;
+
+        // basic cert processing
+        {
+            // Basic cert info
+            {
+                if !cert.is_valid_at(unix_time) {
+                    return Err(format!(
+                        "Certificate for {} is not valid at verification time",
+                        cert_subject
+                    )
+                    .into());
+                }
+
+                if prev_cert.inner.tbs_certificate.subject != cert.inner.tbs_certificate.issuer {
+                    return Err(format!(
+                        "Certificate issuer name {} does not match issuer subject name {}",
+                        cert.inner.tbs_certificate.issuer, prev_cert.inner.tbs_certificate.subject
+                    )
+                    .into());
+                }
+            }
+
+            // skip permitted subtree
+            // skip excluded subtree
+
+            skip_rfc5280_step_because_critical_extension_is_unsupported(
+                skipped_rfc5280_step::CERTIFICATE_POLICIES,
+            );
+        }
+
+        skip_rfc5280_step_because_critical_extension_is_unsupported(
+            skipped_rfc5280_step::POLICY_MAPPINGS,
+        );
+
+        // Certificate signature already validated by caller
+
+        skip_rfc5280_step_because_critical_extension_is_unsupported(
+            skipped_rfc5280_step::NAME_CONSTRAINTS,
+        );
+
+        skip_rfc5280_step_because_critical_extension_is_unsupported(
+            skipped_rfc5280_step::POLICY_CONSTRAINTS,
+        );
+
+        skip_rfc5280_step_because_critical_extension_is_unsupported(
+            skipped_rfc5280_step::INHIBIT_ANY_POLICY,
+        );
+
+        if !is_leaf {
+            if cert.inner.tbs_certificate.version != x509_cert::certificate::Version::V3 {
+                return Err(format!("CA certificate for {} must be v3", cert_subject).into());
+            }
+
+            let Some((critical, basic_constraints)) =
+                cert.inner.tbs_certificate.get::<BasicConstraints>()?
+            else {
+                return Err(format!(
+                    "CA certificate for {} must contain basicConstraints",
+                    cert_subject
+                )
+                .into());
+            };
+
+            if !critical || !basic_constraints.ca {
+                return Err(format!(
+                    "CA certificate for {} must have critical basicConstraints with CA=true",
+                    cert_subject
+                )
+                .into());
+            }
+
+            if !cert.is_self_issued() {
+                if max_path_len > 0 {
+                    max_path_len -= 1;
+                } else {
+                    return Err(
+                        format!("Path length constraint exceeded by {}", cert_subject).into(),
+                    );
+                }
+            }
+
+            if let Some(path_len_constraint) = cert.path_len_constraint()? {
+                max_path_len = max_path_len.min(usize::from(path_len_constraint));
+            }
+
+            if let Some(key_usage) = cert.key_usage()? {
+                if !key_usage.key_cert_sign() {
+                    return Err(format!(
+                        "CA certificate for {} keyUsage does not allow certificate signing",
+                        cert_subject
+                    )
+                    .into());
+                }
+            }
+        }
+
+        prev_cert = cert;
+    }
+    Ok(())
+}
+
 impl Certificate {
+    // Certificate accessors.
     pub fn from_pem(pem: &[u8]) -> Result<Self> {
         Ok(Self {
             inner: x509_cert::Certificate::from_pem(pem)?,
@@ -70,6 +259,21 @@ impl Certificate {
             .map(|extension| extension.extn_value.as_bytes().to_vec()))
     }
 
+    pub fn extended_key_usage_oids(&self) -> Result<Vec<String>> {
+        Ok(self
+            .inner
+            .tbs_certificate
+            .get::<ExtendedKeyUsage>()?
+            .map(|(_, extended_key_usage)| {
+                extended_key_usage
+                    .0
+                    .into_iter()
+                    .map(|oid| oid.to_string())
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     pub fn tbs_certificate_der(&self) -> Result<Vec<u8>> {
         Ok(self.inner.tbs_certificate.to_der()?)
     }
@@ -100,6 +304,7 @@ impl Certificate {
             && unix_time <= validity.not_after.to_unix_duration()
     }
 
+    #[cfg(test)]
     pub fn has_ca_basic_constraints(&self) -> Result<bool> {
         Ok(self
             .basic_constraints()?
@@ -107,6 +312,7 @@ impl Certificate {
             .unwrap_or(false))
     }
 
+    #[cfg(test)]
     pub fn can_issue_certificates(&self) -> Result<bool> {
         let Some(basic_constraints) = self.basic_constraints()? else {
             return Ok(false);
@@ -128,6 +334,24 @@ impl Certificate {
             .and_then(|constraints| constraints.path_len_constraint))
     }
 
+    fn basic_constraints(&self) -> Result<Option<BasicConstraints>> {
+        Ok(self
+            .inner
+            .tbs_certificate
+            .get::<BasicConstraints>()?
+            .map(|(_, constraints)| constraints))
+    }
+
+    fn key_usage(&self) -> Result<Option<KeyUsage>> {
+        Ok(self
+            .inner
+            .tbs_certificate
+            .get::<KeyUsage>()?
+            .map(|(_, key_usage)| key_usage))
+    }
+
+    // Path validation helpers.
+    #[cfg(test)]
     pub fn validate_issuer_for_subject(
         &self,
         subject: &Self,
@@ -184,112 +408,7 @@ impl Certificate {
         Ok(())
     }
 
-    #[cfg(sync_crypto)]
-    pub fn verify_ordered_chain<'a>(
-        trusted_certs: &[&'a Self],
-        untrusted_chain: &[&'a Self],
-        leaf: &'a Self,
-        unix_time: Duration,
-        mut verify_signature: impl FnMut(&Self, &Self) -> Result<()>,
-    ) -> Result<()> {
-        let ordered_chain = Self::ordered_chain(untrusted_chain, leaf);
-        Self::validate_ordered_path(&ordered_chain, unix_time)?;
-
-        Self::for_each_validated_path_edge(
-            trusted_certs,
-            &ordered_chain,
-            unix_time,
-            |issuer, subject| verify_signature(issuer, subject),
-        )
-    }
-
-    #[cfg(async_crypto)]
-    pub async fn verify_ordered_chain_async<'a, F>(
-        trusted_certs: &[&'a Self],
-        untrusted_chain: &[&'a Self],
-        leaf: &'a Self,
-        unix_time: Duration,
-        mut verify_signature: F,
-    ) -> Result<()>
-    where
-        F: for<'b> FnMut(&'b Self, &'b Self) -> Pin<Box<dyn Future<Output = Result<()>> + 'b>>,
-    {
-        let ordered_chain = Self::ordered_chain(untrusted_chain, leaf);
-        Self::validate_ordered_path(&ordered_chain, unix_time)?;
-
-        let mut prev: Option<&Self> = None;
-
-        for (index, &cert) in ordered_chain.iter().enumerate() {
-            let ca_certificates_below = Self::ca_certificates_before_leaf(&ordered_chain, index)?;
-
-            if let Some(issuer) = prev {
-                issuer.validate_issuer_for_subject(cert, unix_time, ca_certificates_below)?;
-                verify_signature(issuer, cert).await?;
-            } else {
-                let mut verified = false;
-                for &trusted in trusted_certs {
-                    if trusted
-                        .validate_trust_anchor_for_subject(cert, unix_time)
-                        .is_ok()
-                        && verify_signature(trusted, cert).await.is_ok()
-                    {
-                        verified = true;
-                        break;
-                    }
-                }
-
-                if !verified {
-                    return Err("Failed to verify certificate: no matching trusted issuer".into());
-                }
-            }
-
-            prev = Some(cert);
-        }
-
-        Ok(())
-    }
-
-    fn ordered_chain<'a>(untrusted_chain: &[&'a Self], leaf: &'a Self) -> Vec<&'a Self> {
-        untrusted_chain
-            .iter()
-            .copied()
-            .chain(std::iter::once(leaf))
-            .collect()
-    }
-
-    #[cfg(sync_crypto)]
-    fn for_each_validated_path_edge(
-        trusted_certs: &[&Self],
-        ordered_chain: &[&Self],
-        unix_time: Duration,
-        mut verify_signature: impl FnMut(&Self, &Self) -> Result<()>,
-    ) -> Result<()> {
-        let mut prev: Option<&Self> = None;
-
-        for (index, &cert) in ordered_chain.iter().enumerate() {
-            let ca_certificates_below = Self::ca_certificates_before_leaf(ordered_chain, index)?;
-
-            if let Some(issuer) = prev {
-                issuer.validate_issuer_for_subject(cert, unix_time, ca_certificates_below)?;
-                verify_signature(issuer, cert)?;
-            } else {
-                trusted_certs
-                    .iter()
-                    .find(|trusted| {
-                        trusted
-                            .validate_trust_anchor_for_subject(cert, unix_time)
-                            .and_then(|_| verify_signature(trusted, cert))
-                            .is_ok()
-                    })
-                    .ok_or("Failed to verify certificate: no matching trusted issuer")?;
-            }
-
-            prev = Some(cert);
-        }
-
-        Ok(())
-    }
-
+    #[cfg(test)]
     fn validate_ordered_path(chain: &[&Self], unix_time: Duration) -> Result<()> {
         Self::reject_duplicate_der_certificates(chain)?;
 
@@ -303,6 +422,7 @@ impl Certificate {
         Ok(())
     }
 
+    #[cfg(test)]
     fn ca_certificates_before_leaf(chain: &[&Self], start_index: usize) -> Result<usize> {
         if chain.is_empty() || start_index >= chain.len() {
             return Ok(0);
@@ -329,6 +449,7 @@ impl Certificate {
         Ok(())
     }
 
+    #[cfg(test)]
     fn reject_duplicate_der_certificates(chain: &[&Self]) -> Result<()> {
         let mut seen = Vec::with_capacity(chain.len());
 
@@ -341,22 +462,6 @@ impl Certificate {
         }
 
         Ok(())
-    }
-
-    fn basic_constraints(&self) -> Result<Option<BasicConstraints>> {
-        Ok(self
-            .inner
-            .tbs_certificate
-            .get::<BasicConstraints>()?
-            .map(|(_, constraints)| constraints))
-    }
-
-    fn key_usage(&self) -> Result<Option<KeyUsage>> {
-        Ok(self
-            .inner
-            .tbs_certificate
-            .get::<KeyUsage>()?
-            .map(|(_, key_usage)| key_usage))
     }
 }
 
@@ -443,6 +548,63 @@ fn is_policy_extension(oid: &ObjectIdentifier) -> bool {
         || *oid == oid::POLICY_MAPPINGS
         || *oid == oid::POLICY_CONSTRAINTS
         || *oid == oid::INHIBIT_ANY_POLICY
+}
+
+fn skip_rfc5280_step_because_critical_extension_is_unsupported(step: SkippedRfc5280Step) {
+    let _ = step.rfc5280_step;
+    let _ = step.unsupported_critical_extension.oid();
+}
+
+#[derive(Clone, Copy)]
+struct SkippedRfc5280Step {
+    rfc5280_step: &'static str,
+    unsupported_critical_extension: UnsupportedCriticalExtension,
+}
+
+#[derive(Clone, Copy)]
+enum UnsupportedCriticalExtension {
+    CertificatePolicies,
+    PolicyMappings,
+    NameConstraints,
+    PolicyConstraints,
+    InhibitAnyPolicy,
+}
+
+impl UnsupportedCriticalExtension {
+    fn oid(self) -> ObjectIdentifier {
+        match self {
+            Self::CertificatePolicies => oid::CERTIFICATE_POLICIES,
+            Self::PolicyMappings => oid::POLICY_MAPPINGS,
+            Self::NameConstraints => oid::NAME_CONSTRAINTS,
+            Self::PolicyConstraints => oid::POLICY_CONSTRAINTS,
+            Self::InhibitAnyPolicy => oid::INHIBIT_ANY_POLICY,
+        }
+    }
+}
+
+mod skipped_rfc5280_step {
+    use super::{SkippedRfc5280Step, UnsupportedCriticalExtension};
+
+    pub const CERTIFICATE_POLICIES: SkippedRfc5280Step = SkippedRfc5280Step {
+        rfc5280_step: "certificate policies",
+        unsupported_critical_extension: UnsupportedCriticalExtension::CertificatePolicies,
+    };
+    pub const POLICY_MAPPINGS: SkippedRfc5280Step = SkippedRfc5280Step {
+        rfc5280_step: "policy mappings",
+        unsupported_critical_extension: UnsupportedCriticalExtension::PolicyMappings,
+    };
+    pub const NAME_CONSTRAINTS: SkippedRfc5280Step = SkippedRfc5280Step {
+        rfc5280_step: "name constraints",
+        unsupported_critical_extension: UnsupportedCriticalExtension::NameConstraints,
+    };
+    pub const POLICY_CONSTRAINTS: SkippedRfc5280Step = SkippedRfc5280Step {
+        rfc5280_step: "policy constraints",
+        unsupported_critical_extension: UnsupportedCriticalExtension::PolicyConstraints,
+    };
+    pub const INHIBIT_ANY_POLICY: SkippedRfc5280Step = SkippedRfc5280Step {
+        rfc5280_step: "inhibit anyPolicy",
+        unsupported_critical_extension: UnsupportedCriticalExtension::InhibitAnyPolicy,
+    };
 }
 
 mod oid {
@@ -673,6 +835,19 @@ mod test {
             .expect_err("Expired or not-yet-valid certificates should fail");
         ask.validate_issuer_for_subject(&vcek, valid_time, 1)
             .expect_err("ASK pathLen=0 should reject subordinate CA certificates");
+    }
+
+    #[test]
+    fn chain_metadata_rejects_non_leaf_v1_or_v2_certificates() {
+        let ark = cert(MILAN_ARK);
+        let mut ask = cert(MILAN_ASK);
+        let vcek = cert(MILAN_VCEK);
+        let valid_time = Duration::from_secs(1_770_000_000);
+
+        ask.inner.tbs_certificate.version = x509_cert::certificate::Version::V1;
+
+        super::validate_certificate_chain_metadata(&ark, &[&ask], &vcek, valid_time)
+            .expect_err("V1 non-leaf certificates should be rejected");
     }
 
     #[test]

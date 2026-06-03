@@ -22,7 +22,7 @@ use sha2::Sha384;
 
 use super::signature as signature_types;
 use super::verifier::{Async as AsyncVerifier, Sync as Verifier};
-use super::x509_certificate::Certificate;
+use super::x509_certificate::{self, Certificate};
 use super::{
     CertificateBackend, CryptoBackend, EcSignatureKeyAlgorithm, Result,
     RsaPssSignatureKeyAlgorithm, Signature, SignatureBackend, SignatureEncoding,
@@ -90,6 +90,10 @@ impl CertificateBackend for Crypto {
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>> {
         cert.get_extension_value_by_oid(oid)
     }
+
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>> {
+        cert.extended_key_usage_oids()
+    }
 }
 
 impl CryptoBackend for Crypto {
@@ -98,13 +102,22 @@ impl CryptoBackend for Crypto {
         untrusted_chain: &[&Certificate],
         leaf: &Certificate,
     ) -> Result<()> {
-        Certificate::verify_ordered_chain(
-            trusted_certs,
-            untrusted_chain,
-            leaf,
-            now_unix_duration()?,
-            verify_certificate_signature,
-        )
+        let now = now_unix_duration()?;
+
+        trusted_certs
+            .iter()
+            .find(|trusted_root| {
+                x509_certificate::verify_ordered_chain(
+                    verify_certificate_signature,
+                    trusted_root,
+                    untrusted_chain,
+                    leaf,
+                    now,
+                )
+                .is_ok()
+            })
+            .ok_or("Failed to verify certificate: no matching trusted issuer".into())
+            .map(|_| ())
     }
 }
 

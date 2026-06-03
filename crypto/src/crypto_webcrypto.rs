@@ -17,7 +17,7 @@ use wasm_bindgen_futures::JsFuture;
 
 use super::signature as signature_types;
 use super::verifier::Async as AsyncVerifier;
-use super::x509_certificate::Certificate as X509Certificate;
+use super::x509_certificate::{self, Certificate as X509Certificate};
 use super::{
     AsyncCryptoBackend, CertificateBackend, EcSignatureKeyAlgorithm, Result,
     RsaPssSignatureKeyAlgorithm, Signature, SignatureBackend, SignatureEncoding,
@@ -98,6 +98,10 @@ impl CertificateBackend for Crypto {
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>> {
         cert.inner.get_extension_value_by_oid(oid)
     }
+
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>> {
+        cert.inner.extended_key_usage_oids()
+    }
 }
 
 impl Key {
@@ -137,14 +141,24 @@ impl AsyncCryptoBackend for Crypto {
             .map(|cert| &cert.inner)
             .collect::<Vec<_>>();
 
-        X509Certificate::verify_ordered_chain_async(
-            &trusted_x509,
-            &untrusted_x509,
-            &leaf.inner,
-            now_unix_duration()?,
-            |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
-        )
-        .await
+        let now = now_unix_duration()?;
+
+        for trusted_root in trusted_x509 {
+            if x509_certificate::verify_ordered_chain_async(
+                |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
+                trusted_root,
+                &untrusted_x509,
+                &leaf.inner,
+                now,
+            )
+            .await
+            .is_ok()
+            {
+                return Ok(());
+            }
+        }
+
+        Err("Failed to verify certificate: no matching trusted issuer".into())
     }
 }
 

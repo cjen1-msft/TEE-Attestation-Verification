@@ -8,8 +8,10 @@
 //! verification. It is the native backend selected when `crypto_openssl` is
 //! enabled for a non-`wasm32` target.
 
-use foreign_types::ForeignType;
-use openssl::asn1::Asn1Object;
+use std::os::raw::{c_char, c_int};
+
+use foreign_types::{ForeignType, ForeignTypeRef};
+use openssl::asn1::{Asn1Object, Asn1ObjectRef};
 use openssl::bn::BigNum;
 use openssl::ecdsa::EcdsaSig;
 use openssl::hash::MessageDigest;
@@ -19,8 +21,8 @@ use openssl::sign::{RsaPssSaltlen, Verifier as OpenSslVerifier};
 use openssl::stack::Stack;
 use openssl::x509::verify::X509VerifyFlags;
 use openssl_sys::{
-    ASN1_STRING_get0_data, ASN1_STRING_length, X509_EXTENSION_get_data, X509_get_ext,
-    X509_get_ext_by_OBJ,
+    ASN1_STRING_get0_data, ASN1_STRING_length, OBJ_obj2txt, X509_EXTENSION_get_data, X509_get_ext,
+    X509_get_ext_by_OBJ, X509_get_ext_d2i,
 };
 
 use super::signature as signature_types;
@@ -122,6 +124,46 @@ impl CertificateBackend for Crypto {
             let bytes = std::slice::from_raw_parts(data_ptr, len as usize).to_vec();
             Ok(Some(bytes))
         }
+    }
+
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>> {
+        unsafe {
+            let stack = X509_get_ext_d2i(
+                cert.as_ptr(),
+                openssl_sys::NID_ext_key_usage,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            if stack.is_null() {
+                return Ok(Vec::new());
+            }
+            let stack = Stack::<Asn1Object>::from_ptr(stack.cast());
+
+            stack.iter().map(asn1_object_to_numeric_string).collect()
+        }
+    }
+}
+
+fn asn1_object_to_numeric_string(object: &Asn1ObjectRef) -> Result<String> {
+    unsafe {
+        let len = OBJ_obj2txt(std::ptr::null_mut(), 0, object.as_ptr(), 1);
+        if len < 0 {
+            return Err("OpenSSL failed to calculate ASN.1 object text length".into());
+        }
+
+        let mut buf = vec![0u8; len as usize + 1];
+        let written = OBJ_obj2txt(
+            buf.as_mut_ptr().cast::<c_char>(),
+            buf.len() as c_int,
+            object.as_ptr(),
+            1,
+        );
+        if written < 0 {
+            return Err("OpenSSL failed to convert ASN.1 object to text".into());
+        }
+
+        String::from_utf8(buf[..written as usize].to_vec())
+            .map_err(|e| format!("OpenSSL returned non-UTF-8 ASN.1 object text: {e:?}").into())
     }
 }
 

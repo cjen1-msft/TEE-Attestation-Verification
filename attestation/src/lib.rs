@@ -81,6 +81,13 @@ pub fn certificate_from_der(der: &[u8]) -> Result<Certificate, Box<dyn std::erro
     Crypto::from_der(der)
 }
 
+/// Returns the certificate's Extended Key Usage OIDs as dotted-decimal strings.
+pub fn certificate_extended_key_usage_oids(
+    cert: &Certificate,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    Crypto::extended_key_usage_oids(cert)
+}
+
 #[cfg(feature = "kds")]
 mod certificate_chain;
 #[cfg(feature = "kds")]

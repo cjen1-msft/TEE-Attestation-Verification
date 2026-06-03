@@ -60,6 +60,9 @@ pub trait CertificateBackend {
 
     /// Extract an extension value by dotted-decimal OID.
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>>;
+
+    /// Extract extended key usage OIDs as dotted-decimal strings.
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>>;
 }
 
 /// Backend-internal trait for certificate verification operations.
@@ -105,16 +108,13 @@ where
     }
 }
 
-#[cfg(crypto_backend = "crypto_openssl")]
+#[cfg(feature = "crypto_openssl")]
 pub(crate) mod crypto_openssl;
-#[cfg(crypto_backend = "crypto_pure_rust")]
+#[cfg(feature = "crypto_pure_rust")]
 pub(crate) mod crypto_pure_rust;
-#[cfg(crypto_backend = "crypto_webcrypto")]
+#[cfg(feature = "crypto_webcrypto")]
 pub(crate) mod crypto_webcrypto;
-#[cfg(any(
-    crypto_backend = "crypto_pure_rust",
-    crypto_backend = "crypto_webcrypto"
-))]
+#[cfg(any(feature = "crypto_pure_rust", feature = "crypto_webcrypto"))]
 mod x509_certificate;
 
 #[cfg(crypto_backend = "crypto_openssl")]
@@ -182,6 +182,15 @@ mod test {
 
         Crypto::get_extension_value_by_oid(&cert, "not-an-oid")
             .expect_err("Malformed OID should fail");
+    }
+
+    #[test]
+    fn extended_key_usage_oids_returns_empty_for_cert_without_eku() {
+        let cert = cert(MILAN_VCEK);
+
+        assert!(Crypto::extended_key_usage_oids(&cert)
+            .expect("EKU lookup should succeed")
+            .is_empty());
     }
 
     #[cfg(sync_crypto)]

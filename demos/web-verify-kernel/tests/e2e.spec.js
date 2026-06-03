@@ -81,6 +81,40 @@ test("Milan fixture renders the expected report", async ({ page, baseURL }) => {
   expect(rendered).toBe(expected);
 });
 
+test("ASK/ARK bundle can be split into certificate inputs before verification", async ({ page, baseURL }) => {
+  const get = async path => {
+    const r = await fetch(baseURL + path);
+    if (!r.ok) throw new Error(`fetch ${path} -> ${r.status}`);
+    return r;
+  };
+  const reportBytes = new Uint8Array(await (await get(FIXTURES.milanReport)).arrayBuffer());
+  const vcekPem = await (await get(FIXTURES.milanVcek)).text();
+  const askPem  = await (await get(FIXTURES.milanAsk)).text();
+  const arkPem  = await (await get(FIXTURES.milanArk)).text();
+
+  await page.goto("/");
+
+  const reportHex = Array.from(reportBytes, b => b.toString(16).padStart(2, "0")).join("");
+  await page.locator("#report-hex").fill(reportHex);
+  await page.locator("#vcek-text").fill(vcekPem);
+  await page.locator("#bundle-text").fill(`${askPem}\n${arkPem}`);
+
+  await page.locator("#split-bundle").click();
+
+  await expect(page.locator("#status")).toHaveClass("ok", { timeout: 30_000 });
+  await expect(page.locator("#status")).toHaveText("Split 2 certificates from bundle into ASK and ARK fields.");
+  const splitAsk = await page.locator("#ask-text").inputValue();
+  const splitArk = await page.locator("#ark-text").inputValue();
+  expect(splitAsk).toContain("-----BEGIN CERTIFICATE-----");
+  expect(splitArk).toContain("-----BEGIN CERTIFICATE-----");
+  expect(splitAsk).not.toBe(splitArk);
+
+  await page.locator('button[type="submit"]').click();
+  await expect(page.locator("#status")).toHaveClass("ok", { timeout: 30_000 });
+  await expect(page.locator("#status")).toHaveText("Signature chain verified against supplied ARK.");
+  await expect(page.locator("#output")).not.toHaveText("");
+});
+
 test("mismatched ARK (Turin against Milan chain) surfaces a verification error and suppresses output", async ({ page, baseURL }) => {
   // Use the real Milan fixtures for everything except the ARK, which is
   // replaced with the Turin ARK. This is a valid certificate but does not

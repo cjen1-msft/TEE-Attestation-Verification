@@ -1,8 +1,8 @@
 # web-verify-kernel — minimal WASM verification demo
 
 A standalone HTML/JS page that exercises the WASM bindings from `ffi.rs`
-(specifically `wasm::verify_attestation_async`) and renders the verified
-SEV-SNP attestation report.
+(`wasm::verify_attestation_async` and `wasm::split_certificate_bundle`) and
+renders the verified SEV-SNP attestation report.
 
 All processing happens client-side; the page makes no network calls other
 than loading its own WASM module.
@@ -30,10 +30,14 @@ After editing Rust sources, rerun step 1 and hard-refresh the browser.
 
 ## Inputs
 
-Four inputs, each accepting either a file upload or pasted text:
+Four verification inputs, each accepting either a file upload or pasted text:
 
 - **Attestation report** — 1184-byte binary (upload) or hex string (textarea).
 - **VCEK**, **ASK**, **ARK** — PEM-encoded certificates.
+
+The optional **ASK/ARK bundle splitter** accepts a PEM bundle containing ASK
+followed by ARK, calls `split_certificate_bundle`, and populates the ASK and
+ARK textareas before verification.
 
 Test fixtures shipped alongside the demo in `./test-data/`:
 

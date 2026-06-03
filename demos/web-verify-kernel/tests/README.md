@@ -1,11 +1,11 @@
 # web-verify-kernel end-to-end tests
 
-Playwright test that drives the `demos/web-verify-kernel/` page in a real
-browser, runs the Milan attestation fixture through
-`verify_attestation_async`, and diffs the rendered output against
-`milan_report.expected.txt`. A second test exercises the error-rendering path
-by validating a Milan VCEK→ASK chain against the Turin ARK and checking that
-the rendered status surfaces `ErrorCode::InvalidRootCertificate` (102).
+Playwright tests that drive the `demos/web-verify-kernel/` page in a real
+browser, run the Milan attestation fixture through `verify_attestation_async`,
+and diff the rendered output against `milan_report.expected.txt`. Additional
+tests exercise the ASK/ARK bundle splitter and the error-rendering path by
+validating a Milan VCEK→ASK chain against the Turin ARK and checking that the
+rendered status surfaces `ErrorCode::InvalidRootCertificate` (102).
 
 ## How to run the tests
 

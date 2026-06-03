@@ -1,14 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import init, { verify_attestation_async } from "./pkg/tee_attestation_verification_lib.js";
+import init, {
+  split_certificate_bundle,
+  verify_attestation_async,
+} from "./pkg/tee_attestation_verification_lib.js";
 
 const statusEl = document.getElementById("status");
 const outputEl = document.getElementById("output");
+let wasmInitPromise;
 
 function setStatus(msg, kind = "") {
   statusEl.textContent = msg;
   statusEl.className = kind;
+}
+
+function ensureWasmLoaded() {
+  if (!wasmInitPromise) {
+    wasmInitPromise = init();
+  }
+  return wasmInitPromise;
 }
 
 // ----- input helpers --------------------------------------------------------
@@ -41,6 +52,7 @@ function wireFileToText(fileId, textId, transform) {
 wireFileToText("report-file", "report-hex",
   async f => bytesToHex(new Uint8Array(await f.arrayBuffer())));
 wireFileToText("vcek-file", "vcek-text", f => f.text());
+wireFileToText("bundle-file", "bundle-text", f => f.text());
 wireFileToText("ask-file",  "ask-text",  f => f.text());
 wireFileToText("ark-file",  "ark-text",  f => f.text());
 
@@ -54,6 +66,12 @@ function getPem(name, textId) {
   const text = document.getElementById(textId).value;
   if (!text.trim()) throw new Error(`No ${name} PEM provided (upload a file or paste text)`);
   return text;
+}
+
+function errorDetails(err) {
+  const code = err && err.code !== undefined ? ` (code ${err.code})` : "";
+  const msg = err && err.message ? err.message : String(err);
+  return { code, msg };
 }
 
 // ----- formatting -----------------------------------------------------------
@@ -155,12 +173,34 @@ function render(report) {
 
 // ----- main -----------------------------------------------------------------
 
+async function onSplitBundle() {
+  outputEl.textContent = "";
+  setStatus("Loading WASM module...");
+  try {
+    await ensureWasmLoaded();
+    setStatus("Splitting certificate bundle...");
+    const bundlePem = getPem("certificate bundle", "bundle-text");
+    const certificates = split_certificate_bundle(bundlePem);
+    if (certificates.length !== 2) {
+      throw new Error(`Expected 2 certificates (ASK then ARK), got ${certificates.length}`);
+    }
+
+    document.getElementById("ask-text").value = certificates[0];
+    document.getElementById("ark-text").value = certificates[1];
+    setStatus("Split 2 certificates from bundle into ASK and ARK fields.", "ok");
+  } catch (err) {
+    console.error(err);
+    const { msg } = errorDetails(err);
+    setStatus(`Bundle split failed: ${msg}`, "err");
+  }
+}
+
 async function onSubmit(ev) {
   ev.preventDefault();
   outputEl.textContent = "";
   setStatus("Loading WASM module...");
   try {
-    await init();
+    await ensureWasmLoaded();
     setStatus("Reading inputs...");
     const reportBytes = getReportBytes();
     const arkPem  = getPem("ARK",  "ark-text");
@@ -178,10 +218,10 @@ async function onSubmit(ev) {
     // just have .message. Surface whichever we have, and log the raw object
     // to devtools for easier debugging.
     console.error(err);
-    const code = err && err.code !== undefined ? ` (code ${err.code})` : "";
-    const msg = err && err.message ? err.message : String(err);
+    const { code, msg } = errorDetails(err);
     setStatus(`Verification failed${code}: ${msg}`, "err");
   }
 }
 
+document.getElementById("split-bundle").addEventListener("click", onSplitBundle);
 document.getElementById("form").addEventListener("submit", onSubmit);

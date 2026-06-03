@@ -4,9 +4,9 @@
 
 [1.0.1]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.1
 
-# Added
+### Added
 
-- Expose a WASM certificate bundle splitter.
+- Expose a WASM certificate bundle splitter. (#49)
 
 ## [1.0.0]
 

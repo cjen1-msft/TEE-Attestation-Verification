@@ -16,10 +16,9 @@ use rsa::{
 };
 use sha2::Sha384;
 
-use super::verifier::Sync as Verifier;
+use super::verifier::{Async as AsyncVerifier, Sync as Verifier};
 use super::x509_certificate::{Certificate, SignatureAlgorithm};
-use super::{CertificateBackend, CryptoBackend, Result};
-use crate::snp::report::{AttestationReport, Signature};
+use super::{CertificateBackend, CryptoBackend, ReportSignatureVerifier, Result};
 
 pub struct Crypto;
 
@@ -48,6 +47,12 @@ impl Verifier<Certificate> for Certificate {
                 Ok(())
             }
         }
+    }
+}
+
+impl AsyncVerifier<Certificate> for Certificate {
+    async fn verify(&self, subject: &Certificate) -> Result<()> {
+        Verifier::verify(self, subject)
     }
 }
 
@@ -93,11 +98,13 @@ impl CryptoBackend for Crypto {
         let mut prev: Option<&Certificate> = None;
         for cert in untrusted_chain {
             if let Some(issuer) = prev {
-                issuer.verify(*cert)?;
+                <Certificate as Verifier<Certificate>>::verify(issuer, *cert)?;
             } else {
                 trusted_certs
                     .iter()
-                    .find(|trusted| trusted.verify(*cert).is_ok())
+                    .find(|trusted| {
+                        <Certificate as Verifier<Certificate>>::verify(*trusted, *cert).is_ok()
+                    })
                     .ok_or("Failed to verify certificate: no matching trusted issuer")?;
             }
             prev = Some(cert);
@@ -109,30 +116,27 @@ impl CryptoBackend for Crypto {
 fn verify_report_sig_ecdsa_p384_sha384(
     vcek: &Certificate,
     signed_bytes: &[u8],
-    signature: Signature,
+    r: [u8; 72],
+    s: [u8; 72],
 ) -> Result<()> {
     let vcek_pub = vcek.subject_public_key_bytes();
 
     let vk = EcdsaVerifyingKey::from_sec1_bytes(vcek_pub)
         .map_err(|e| format!("Failed to parse ECDSA public key: {:?}", e))?;
 
-    if signature.r[48..].iter().any(|byte| *byte != 0) {
+    if r[48..].iter().any(|byte| *byte != 0) {
         return Err(
             "Invalid r scalar padding: upper 24 bytes must be zero for P-384 signatures".into(),
         );
     }
-    let mut r_bytes: [u8; 48] = signature.r[..48]
-        .try_into()
-        .map_err(|_| "Invalid r scalar length")?;
+    let mut r_bytes: [u8; 48] = r[..48].try_into().map_err(|_| "Invalid r scalar length")?;
     r_bytes.reverse();
-    if signature.s[48..].iter().any(|byte| *byte != 0) {
+    if s[48..].iter().any(|byte| *byte != 0) {
         return Err(
             "Invalid s scalar padding: upper 24 bytes must be zero for P-384 signatures".into(),
         );
     }
-    let mut s_bytes: [u8; 48] = signature.s[..48]
-        .try_into()
-        .map_err(|_| "Invalid s scalar length")?;
+    let mut s_bytes: [u8; 48] = s[..48].try_into().map_err(|_| "Invalid s scalar length")?;
     s_bytes.reverse();
 
     let sig = p384::ecdsa::Signature::from_scalars(r_bytes, s_bytes)
@@ -144,16 +148,13 @@ fn verify_report_sig_ecdsa_p384_sha384(
     Ok(())
 }
 
-impl Verifier<AttestationReport> for Certificate {
-    fn verify(&self, report: &AttestationReport) -> Result<()> {
-        let signed_bytes = report.signed_bytes();
-        match report.signature_algo.get() {
-            0x0001 => verify_report_sig_ecdsa_p384_sha384(self, signed_bytes, report.signature),
-            _ => Err(format!(
-                "Unsupported signature algorithm: 0x{:04X}",
-                report.signature_algo.get()
-            )
-            .into()),
-        }
+impl ReportSignatureVerifier for Crypto {
+    fn verify_ecdsa_p384_sha384_signature(
+        cert: &Self::Certificate,
+        signed_bytes: &[u8],
+        r: [u8; 72],
+        s: [u8; 72],
+    ) -> Result<()> {
+        verify_report_sig_ecdsa_p384_sha384(cert, signed_bytes, r, s)
     }
 }

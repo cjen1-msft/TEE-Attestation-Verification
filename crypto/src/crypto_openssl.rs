@@ -127,6 +127,13 @@ impl CertificateBackend for Crypto {
 
     fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>> {
         unsafe {
+            let eku_oid = Asn1Object::from_str("2.5.29.37")
+                .map_err(|e| format!("Invalid EKU extension OID: {e:?}"))?;
+            let eku_index = X509_get_ext_by_OBJ(cert.as_ptr(), eku_oid.as_ptr(), -1);
+            if eku_index == -1 {
+                return Ok(Vec::new());
+            }
+
             let stack = X509_get_ext_d2i(
                 cert.as_ptr(),
                 openssl_sys::NID_ext_key_usage,
@@ -134,7 +141,7 @@ impl CertificateBackend for Crypto {
                 std::ptr::null_mut(),
             );
             if stack.is_null() {
-                return Ok(Vec::new());
+                return Err("OpenSSL failed to decode Extended Key Usage extension".into());
             }
             let stack = Stack::<Asn1Object>::from_ptr(stack.cast());
 

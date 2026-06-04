@@ -7,6 +7,7 @@ const GENOA_ARK: &[u8] = include_bytes!("test_data/genoa_ark.pem");
 const GENOA_ASK: &[u8] = include_bytes!("test_data/genoa_ask.pem");
 const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
 const EKU_TEST_CERT: &[u8] = include_bytes!("test_data/eku_test_cert.pem");
+const MALFORMED_EKU_TEST_CERT: &[u8] = include_bytes!("test_data/malformed_eku_test_cert.pem");
 
 fn cert(pem: &[u8]) -> Certificate {
     Crypto::from_pem(pem).unwrap()
@@ -67,6 +68,13 @@ fn extended_key_usage_oids_extracts_present_eku_oids() {
         Crypto::extended_key_usage_oids(&cert).expect("EKU lookup should succeed"),
         vec!["1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.2"]
     );
+}
+
+#[test]
+fn extended_key_usage_oids_rejects_malformed_eku_extension() {
+    let cert = cert(MALFORMED_EKU_TEST_CERT);
+
+    Crypto::extended_key_usage_oids(&cert).expect_err("Malformed EKU should fail");
 }
 
 #[cfg(sync_crypto)]

@@ -6,6 +6,7 @@ const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
 const GENOA_ARK: &[u8] = include_bytes!("test_data/genoa_ark.pem");
 const GENOA_ASK: &[u8] = include_bytes!("test_data/genoa_ask.pem");
 const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
+const EKU_TEST_CERT: &[u8] = include_bytes!("test_data/eku_test_cert.pem");
 
 fn cert(pem: &[u8]) -> Certificate {
     Crypto::from_pem(pem).unwrap()
@@ -56,6 +57,16 @@ fn extended_key_usage_oids_returns_empty_for_cert_without_eku() {
     assert!(Crypto::extended_key_usage_oids(&cert)
         .expect("EKU lookup should succeed")
         .is_empty());
+}
+
+#[test]
+fn extended_key_usage_oids_extracts_present_eku_oids() {
+    let cert = cert(EKU_TEST_CERT);
+
+    assert_eq!(
+        Crypto::extended_key_usage_oids(&cert).expect("EKU lookup should succeed"),
+        vec!["1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.2"]
+    );
 }
 
 #[cfg(sync_crypto)]

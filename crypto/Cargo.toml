@@ -12,7 +12,15 @@ links = "tav_crypto"
 [features]
 default = ["crypto_openssl", "crypto_webcrypto"]
 crypto_openssl = ["dep:foreign-types", "dep:openssl", "dep:openssl-sys"]
-crypto_pure_rust = ["dep:ecdsa", "dep:p384", "dep:rsa", "dep:sha2", "dep:x509-cert"]
+crypto_pure_rust = [
+    "dep:ecdsa",
+    "dep:getrandom",
+    "dep:p384",
+    "dep:rsa",
+    "dep:sha2",
+    "dep:x509-cert",
+    "getrandom/js",
+]
 crypto_webcrypto = ["dep:x509-cert"]
 
 [dependencies]
@@ -28,6 +36,7 @@ openssl = { version = "0.10", optional = true }
 openssl-sys = { version = "0.9", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", optional = true }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

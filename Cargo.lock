@@ -1005,6 +1005,7 @@ version = "1.0.1"
 dependencies = [
  "ecdsa",
  "foreign-types",
+ "getrandom",
  "js-sys",
  "openssl",
  "openssl-sys",

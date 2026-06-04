@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::{Certificate, CertificateBackend, Crypto};
 
 const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");

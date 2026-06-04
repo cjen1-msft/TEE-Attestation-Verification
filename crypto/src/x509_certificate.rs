@@ -1,25 +1,215 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::time::Duration;
+#[cfg(crypto_backend = "crypto_webcrypto")]
+use std::{future::Future, pin::Pin};
+
+use pkcs1::{RsaPssParams, TrailerField};
 use x509_cert::der::{
-    oid::ObjectIdentifier, pem::LineEnding, referenced::OwnedToRef, Decode, DecodePem, Encode,
-    EncodePem,
+    asn1::AnyRef, oid::ObjectIdentifier, pem::LineEnding, referenced::OwnedToRef, Decode,
+    DecodePem, Encode, EncodePem,
 };
+use x509_cert::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage};
 use x509_cert::spki::AlgorithmIdentifierOwned;
 
-use super::Result;
+use super::{Result, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Certificate {
     inner: x509_cert::Certificate,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SignatureAlgorithm {
-    RsaPss,
+/// Synchronous checking of a certificate path
+#[cfg(sync_crypto)]
+pub fn verify_certificate_path(
+    mut verify_signature: impl FnMut(&Certificate, &Certificate) -> Result<()>,
+    root_trust_anchor: &Certificate,
+    untrusted_chain: &[&Certificate],
+    leaf: &Certificate,
+    unix_time: Duration,
+) -> Result<()> {
+    // Before checking metadata, verify that the chain is properly ordered and that signatures are valid
+    let full_chain = untrusted_chain
+        .iter()
+        .copied()
+        .chain(std::iter::once(leaf))
+        .collect::<Vec<_>>();
+
+    // Trust anchor signature should be self-signed
+    verify_signature(root_trust_anchor, full_chain[0])
+        .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    for edge in full_chain.windows(2) {
+        let issuer = edge[0];
+        let subject = edge[1];
+        verify_signature(issuer, subject)
+            .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    }
+
+    // After verifying signatures, check metadata constraints on the chain
+    validate_certificate_path_parameters(root_trust_anchor, untrusted_chain, leaf, unix_time)
+}
+
+/// Asynchronous checking of the certificate path
+#[cfg(crypto_backend = "crypto_webcrypto")]
+pub async fn verify_certificate_path_async<F>(
+    mut verify_signature: F,
+    root_trust_anchor: &Certificate,
+    untrusted_chain: &[&Certificate],
+    leaf: &Certificate,
+    unix_time: Duration,
+) -> Result<()>
+where
+    F: for<'a> FnMut(
+        &'a Certificate,
+        &'a Certificate,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>>,
+{
+    // Before checking metadata, verify that the chain is properly ordered and that signatures are valid
+    let full_chain = untrusted_chain
+        .iter()
+        .copied()
+        .chain(std::iter::once(leaf))
+        .collect::<Vec<_>>();
+
+    // Trust anchor signature should be self-signed
+    verify_signature(root_trust_anchor, full_chain[0])
+        .await
+        .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    for edge in full_chain.windows(2) {
+        let issuer = edge[0];
+        let subject = edge[1];
+        verify_signature(issuer, subject)
+            .await
+            .map_err(|e| format!("Certificate signature verification failed: {e}"))?;
+    }
+
+    // After verifying signatures, check metadata constraints on the chain
+    validate_certificate_path_parameters(root_trust_anchor, untrusted_chain, leaf, unix_time)
+}
+
+/// Restricted certificate path validation
+/// This function performs the subset required for validating AMD VCEK certificate paths and will fail if any unsupported critical extensions are present.
+/// Signature verification is expected to be performed by the caller.
+fn validate_certificate_path_parameters(
+    root_trust_anchor: &Certificate,
+    untrusted_chain: &[&Certificate],
+    leaf: &Certificate,
+    unix_time: Duration,
+) -> Result<()> {
+    // skip initial-permitted-subtrees and initial-excluded-subtrees
+    let mut prev_cert = root_trust_anchor;
+    let mut max_path_len = untrusted_chain.len() + 2; // root + untrusted_chain + leaf
+
+    if !root_trust_anchor.is_self_issued() {
+        return Err(format!("The trust-anchor certificate must be self-issued").into());
+    }
+
+    let rt_chain = std::iter::once((root_trust_anchor, false));
+    let ut_chain = untrusted_chain.iter().map(|cert| (*cert, false));
+    let l_chain = std::iter::once((leaf, true));
+    let full_chain = rt_chain.chain(ut_chain).chain(l_chain);
+    for (cert, is_leaf) in full_chain {
+        let cert_subject = &cert.inner.tbs_certificate.subject;
+
+        // basic cert processing
+        {
+            // Basic cert info
+            {
+                // Certificate signature already validated
+
+                if !cert.is_valid_at(unix_time) {
+                    return Err(format!(
+                        "Certificate for {} is not valid at verification time",
+                        cert_subject
+                    )
+                    .into());
+                }
+
+                if prev_cert.inner.tbs_certificate.subject != cert.inner.tbs_certificate.issuer {
+                    return Err(format!(
+                        "Certificate issuer name {} does not match issuer subject name {}",
+                        cert.inner.tbs_certificate.issuer, prev_cert.inner.tbs_certificate.subject
+                    )
+                    .into());
+                }
+            }
+
+            // skip permitted subtree
+            // skip excluded subtree
+
+            assert_skipped_extension_not_critical_if_present(cert, oid::CERTIFICATE_POLICIES)?;
+        }
+
+        assert_skipped_extension_not_critical_if_present(cert, oid::POLICY_MAPPINGS)?;
+
+        // Certificate signature already validated by caller
+
+        assert_skipped_extension_not_critical_if_present(cert, oid::NAME_CONSTRAINTS)?;
+
+        assert_skipped_extension_not_critical_if_present(cert, oid::POLICY_CONSTRAINTS)?;
+
+        assert_skipped_extension_not_critical_if_present(cert, oid::INHIBIT_ANY_POLICY)?;
+
+        if !is_leaf {
+            if cert.inner.tbs_certificate.version != x509_cert::certificate::Version::V3 {
+                return Err(format!("CA certificate for {} must be v3", cert_subject).into());
+            }
+
+            let Some((critical, basic_constraints)) =
+                cert.inner.tbs_certificate.get::<BasicConstraints>()?
+            else {
+                return Err(format!(
+                    "CA certificate for {} must contain basicConstraints",
+                    cert_subject
+                )
+                .into());
+            };
+
+            if !critical || !basic_constraints.ca {
+                return Err(format!(
+                    "CA certificate for {} must have critical basicConstraints with CA=true",
+                    cert_subject
+                )
+                .into());
+            }
+
+            if !cert.is_self_issued() {
+                if max_path_len > 0 {
+                    max_path_len -= 1;
+                } else {
+                    return Err(
+                        format!("Path length constraint exceeded by {}", cert_subject).into(),
+                    );
+                }
+            }
+
+            if let Some(path_len_constraint) = cert.path_len_constraint()? {
+                max_path_len = max_path_len.min(usize::from(path_len_constraint));
+            }
+
+            if let Some(key_usage) = cert.key_usage()? {
+                if !key_usage.key_cert_sign() {
+                    return Err(format!(
+                        "CA certificate for {} keyUsage does not allow certificate signing",
+                        cert_subject
+                    )
+                    .into());
+                }
+            }
+        }
+
+        cert.validate_supported_critical_extensions().map_err(|e| {
+            format!("Certificate for {cert_subject} contains unsupported critical extension: {e}")
+        })?;
+
+        prev_cert = cert;
+    }
+    Ok(())
 }
 
 impl Certificate {
+    // Certificate accessors.
     pub fn from_pem(pem: &[u8]) -> Result<Self> {
         Ok(Self {
             inner: x509_cert::Certificate::from_pem(pem)?,
@@ -69,6 +259,21 @@ impl Certificate {
             .map(|extension| extension.extn_value.as_bytes().to_vec()))
     }
 
+    pub fn extended_key_usage_oids(&self) -> Result<Vec<String>> {
+        Ok(self
+            .inner
+            .tbs_certificate
+            .get::<ExtendedKeyUsage>()?
+            .map(|(_, extended_key_usage)| {
+                extended_key_usage
+                    .0
+                    .into_iter()
+                    .map(|oid| oid.to_string())
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     pub fn tbs_certificate_der(&self) -> Result<Vec<u8>> {
         Ok(self.inner.tbs_certificate.to_der()?)
     }
@@ -77,41 +282,280 @@ impl Certificate {
         self.inner.signature.raw_bytes()
     }
 
-    pub fn signature_algorithm(&self) -> Result<SignatureAlgorithm> {
+    pub fn signature_algorithm(&self) -> Result<SignatureKeyAlgorithm> {
         parse_signature_algorithm(&self.inner.signature_algorithm)
     }
 
-    #[cfg(feature = "crypto_pure_rust")]
-    pub fn subject_public_key_bytes(&self) -> &[u8] {
-        self.inner
+    #[cfg(test)]
+    pub fn subject_matches_issuer_of(&self, subject: &Self) -> bool {
+        // This constrained validator intentionally uses strict structural Name
+        // equality rather than the full RFC 5280 Section 7.1 comparison rules.
+        // AMD and UVM collateral use structurally matching issuer/subject names.
+        self.inner.tbs_certificate.subject == subject.inner.tbs_certificate.issuer
+    }
+
+    pub fn is_self_issued(&self) -> bool {
+        self.inner.tbs_certificate.subject == self.inner.tbs_certificate.issuer
+    }
+
+    pub fn is_valid_at(&self, unix_time: Duration) -> bool {
+        let validity = &self.inner.tbs_certificate.validity;
+
+        validity.not_before.to_unix_duration() <= unix_time
+            && unix_time <= validity.not_after.to_unix_duration()
+    }
+
+    pub fn path_len_constraint(&self) -> Result<Option<u8>> {
+        Ok(self
+            .basic_constraints()?
+            .and_then(|constraints| constraints.path_len_constraint))
+    }
+
+    fn basic_constraints(&self) -> Result<Option<BasicConstraints>> {
+        Ok(self
+            .inner
             .tbs_certificate
-            .subject_public_key_info
-            .subject_public_key
-            .raw_bytes()
+            .get::<BasicConstraints>()?
+            .map(|(_, constraints)| constraints))
+    }
+
+    fn key_usage(&self) -> Result<Option<KeyUsage>> {
+        Ok(self
+            .inner
+            .tbs_certificate
+            .get::<KeyUsage>()?
+            .map(|(_, key_usage)| key_usage))
+    }
+
+    fn validate_supported_critical_extensions(&self) -> Result<()> {
+        let Some(extensions) = self.inner.tbs_certificate.extensions.as_ref() else {
+            return Ok(());
+        };
+
+        for extension in extensions {
+            if extension.critical
+                && extension.extn_id != oid::BASIC_CONSTRAINTS
+                && extension.extn_id != oid::KEY_USAGE
+            {
+                return Err(format!(
+                    "Unsupported critical certificate extension: {}",
+                    extension.extn_id
+                )
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn has_ca_basic_constraints(&self) -> Result<bool> {
+        Ok(self
+            .basic_constraints()?
+            .map(|constraints| constraints.ca)
+            .unwrap_or(false))
+    }
+
+    #[cfg(test)]
+    pub fn can_issue_certificates(&self) -> Result<bool> {
+        let Some(basic_constraints) = self.basic_constraints()? else {
+            return Ok(false);
+        };
+
+        if !basic_constraints.ca {
+            return Ok(false);
+        }
+
+        Ok(self
+            .key_usage()?
+            .map(|key_usage| key_usage.key_cert_sign())
+            .unwrap_or(true))
+    }
+
+    #[cfg(test)]
+    pub fn validate_issuer_for_subject(
+        &self,
+        subject: &Self,
+        unix_time: Duration,
+        ca_certificates_below: usize,
+    ) -> Result<()> {
+        self.validate_supported_critical_extensions()?;
+        subject.validate_supported_critical_extensions()?;
+
+        if !self.subject_matches_issuer_of(subject) {
+            return Err("Certificate issuer name does not match issuer subject name".into());
+        }
+
+        if !self.is_valid_at(unix_time) {
+            return Err("Issuer certificate is not valid at verification time".into());
+        }
+
+        if !subject.is_valid_at(unix_time) {
+            return Err("Subject certificate is not valid at verification time".into());
+        }
+
+        if !self.can_issue_certificates()? {
+            return Err("Issuer certificate is not a CA allowed to sign certificates".into());
+        }
+
+        if let Some(path_len_constraint) = self.path_len_constraint()? {
+            if ca_certificates_below > usize::from(path_len_constraint) {
+                return Err(format!(
+                    "Issuer path length constraint exceeded: allowed {}, got {}",
+                    path_len_constraint, ca_certificates_below
+                )
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn validate_ordered_path(chain: &[&Self], unix_time: Duration) -> Result<()> {
+        Self::reject_duplicate_der_certificates(chain)?;
+
+        for cert in chain {
+            cert.validate_supported_critical_extensions()?;
+            if !cert.is_valid_at(unix_time) {
+                return Err("Certificate is not valid at verification time".into());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn ca_certificates_before_leaf(chain: &[&Self], start_index: usize) -> Result<usize> {
+        if chain.is_empty() || start_index >= chain.len() {
+            return Ok(0);
+        }
+
+        chain[start_index..chain.len() - 1]
+            .iter()
+            .try_fold(0usize, |count, cert| {
+                Ok(count + usize::from(cert.has_ca_basic_constraints()? && !cert.is_self_issued()))
+            })
+    }
+    #[cfg(test)]
+    fn reject_duplicate_der_certificates(chain: &[&Self]) -> Result<()> {
+        let mut seen = Vec::with_capacity(chain.len());
+
+        for cert in chain {
+            let der = cert.to_der()?;
+            if seen.iter().any(|seen_der| seen_der == &der) {
+                return Err("Certificate chain contains a duplicate certificate".into());
+            }
+            seen.push(der);
+        }
+
+        Ok(())
     }
 }
 
-fn parse_signature_algorithm(algorithm: &AlgorithmIdentifierOwned) -> Result<SignatureAlgorithm> {
+fn parse_signature_algorithm(
+    algorithm: &AlgorithmIdentifierOwned,
+) -> Result<SignatureKeyAlgorithm> {
     let algorithm_ref = algorithm.owned_to_ref();
 
     if algorithm_ref.oid == oid::RSA_PSS {
-        return Ok(SignatureAlgorithm::RsaPss);
+        let parameters = algorithm_ref
+            .parameters
+            .ok_or("RSA-PSS signature algorithm parameters are required")?;
+
+        return parse_rsa_pss_signature_algorithm(parameters);
     }
 
     Err(format!("Unsupported signature algorithm OID: {}", algorithm_ref.oid).into())
 }
 
+fn parse_rsa_pss_signature_algorithm(parameters: AnyRef<'_>) -> Result<SignatureKeyAlgorithm> {
+    let parameters = parameters.decode_as::<RsaPssParams<'_>>()?;
+    let expected_algorithm = RsaPssSignatureKeyAlgorithm::Ps384;
+
+    if parameters.hash.oid != oid::SHA384
+        || !parameters
+            .hash
+            .parameters
+            .map(|parameters| parameters.is_null())
+            .unwrap_or(true)
+    {
+        return Err("Unsupported RSA-PSS hash algorithm parameters".into());
+    }
+
+    let Some(mask_gen_hash) = parameters.mask_gen.parameters else {
+        return Err("RSA-PSS MGF1 parameters are required".into());
+    };
+
+    if parameters.mask_gen.oid != oid::MGF1
+        || mask_gen_hash.oid != oid::SHA384
+        || !mask_gen_hash
+            .parameters
+            .map(|parameters| parameters.is_null())
+            .unwrap_or(true)
+    {
+        return Err("Unsupported RSA-PSS mask generation parameters".into());
+    }
+
+    if usize::from(parameters.salt_len) != expected_algorithm.salt_len() {
+        return Err(format!(
+            "Unsupported RSA-PSS salt length: expected {}, got {}",
+            expected_algorithm.salt_len(),
+            parameters.salt_len
+        )
+        .into());
+    }
+
+    if parameters.trailer_field != TrailerField::BC {
+        return Err("Unsupported RSA-PSS trailer field".into());
+    }
+
+    Ok(SignatureKeyAlgorithm::RsaPss(expected_algorithm))
+}
+
+fn assert_skipped_extension_not_critical_if_present(
+    cert: &Certificate,
+    oid: ObjectIdentifier,
+) -> Result<()> {
+    let Some(extensions) = cert.inner.tbs_certificate.extensions.as_ref() else {
+        return Ok(());
+    };
+
+    for cert_extension in extensions {
+        if cert_extension.extn_id == oid && cert_extension.critical {
+            return Err(format!(
+                "Cannot skip RFC 5280 processing for critical extension {}",
+                oid
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
 mod oid {
     use x509_cert::der::oid::ObjectIdentifier;
 
     pub const RSA_PSS: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.10");
+    pub const MGF1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.8");
+    pub const SHA384: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.2");
+    pub const KEY_USAGE: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.15");
+    pub const BASIC_CONSTRAINTS: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.19");
+    pub const NAME_CONSTRAINTS: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.30");
+    pub const CERTIFICATE_POLICIES: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.32");
+    pub const POLICY_MAPPINGS: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.33");
+    pub const POLICY_CONSTRAINTS: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.36");
+    pub const INHIBIT_ANY_POLICY: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.54");
 }
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use x509_cert::der::Encode;
 
-    use super::{Certificate, SignatureAlgorithm};
+    use super::Certificate;
+    use crate::{RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm};
 
     const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
     const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
@@ -239,7 +683,131 @@ mod test {
         assert_eq!(
             cert.signature_algorithm()
                 .expect("Signature algorithm should parse"),
-            SignatureAlgorithm::RsaPss
+            SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384)
         );
+    }
+
+    #[test]
+    fn rsa_pss_signature_algorithm_requires_parameters() {
+        let algorithm = x509_cert::spki::AlgorithmIdentifierOwned {
+            oid: super::oid::RSA_PSS,
+            parameters: None,
+        };
+
+        super::parse_signature_algorithm(&algorithm)
+            .expect_err("RSA-PSS parameters default to SHA-1 and should be rejected");
+    }
+
+    #[test]
+    fn certificate_path_metadata_matches_amd_chain() {
+        let ark = cert(MILAN_ARK);
+        let ask = cert(MILAN_ASK);
+        let vcek = cert(MILAN_VCEK);
+
+        assert!(ark.subject_matches_issuer_of(&ask));
+        assert!(ask.subject_matches_issuer_of(&vcek));
+        assert!(!ark.subject_matches_issuer_of(&vcek));
+        assert!(ark.is_self_issued());
+        assert!(!ask.is_self_issued());
+
+        assert!(ark
+            .can_issue_certificates()
+            .expect("ARK constraints should parse"));
+        assert!(ask
+            .can_issue_certificates()
+            .expect("ASK constraints should parse"));
+        assert!(!vcek
+            .can_issue_certificates()
+            .expect("VCEK constraints should parse"));
+        assert_eq!(
+            ask.path_len_constraint()
+                .expect("ASK path length should parse"),
+            Some(0)
+        );
+
+        let chain = [&ask, &vcek];
+        assert_eq!(
+            Certificate::ca_certificates_before_leaf(&chain, 0).expect("CA count should parse"),
+            1
+        );
+        assert_eq!(
+            Certificate::ca_certificates_before_leaf(&chain, 1).expect("CA count should parse"),
+            0
+        );
+
+        let chain_with_self_issued_ca = [&ark, &ask, &vcek];
+        assert_eq!(
+            Certificate::ca_certificates_before_leaf(&chain_with_self_issued_ca, 0)
+                .expect("CA count should parse"),
+            1
+        );
+    }
+
+    #[test]
+    fn issuer_validation_checks_names_validity_and_constraints() {
+        let ark = cert(MILAN_ARK);
+        let ask = cert(MILAN_ASK);
+        let vcek = cert(MILAN_VCEK);
+        let valid_time = Duration::from_secs(1_770_000_000);
+
+        ark.validate_issuer_for_subject(&ask, valid_time, 0)
+            .expect("ARK should be able to issue ASK");
+        ask.validate_issuer_for_subject(&vcek, valid_time, 0)
+            .expect("ASK should be able to issue VCEK");
+
+        ark.validate_issuer_for_subject(&vcek, valid_time, 0)
+            .expect_err("ARK subject name should not match VCEK issuer name");
+        ask.validate_issuer_for_subject(&vcek, Duration::from_secs(1), 0)
+            .expect_err("Expired or not-yet-valid certificates should fail");
+        ask.validate_issuer_for_subject(&vcek, valid_time, 1)
+            .expect_err("ASK pathLen=0 should reject subordinate CA certificates");
+    }
+
+    #[test]
+    fn chain_metadata_rejects_non_leaf_v1_or_v2_certificates() {
+        let ark = cert(MILAN_ARK);
+        let mut ask = cert(MILAN_ASK);
+        let vcek = cert(MILAN_VCEK);
+        let valid_time = Duration::from_secs(1_770_000_000);
+
+        ask.inner.tbs_certificate.version = x509_cert::certificate::Version::V1;
+
+        super::validate_certificate_path_parameters(&ark, &[&ask], &vcek, valid_time)
+            .expect_err("V1 non-leaf certificates should be rejected");
+    }
+
+    #[test]
+    fn ordered_path_rejects_duplicate_certificates() {
+        let ask = cert(MILAN_ASK);
+        let vcek = cert(MILAN_VCEK);
+        let valid_time = Duration::from_secs(1_770_000_000);
+
+        Certificate::validate_ordered_path(&[&ask, &vcek], valid_time)
+            .expect("Unique ordered path should validate");
+        Certificate::validate_ordered_path(&[&ask, &vcek, &ask], valid_time)
+            .expect_err("Duplicate DER certificate should fail");
+    }
+
+    #[test]
+    fn critical_extension_policy_allows_only_processed_extensions() {
+        let mut vcek = cert(MILAN_VCEK);
+        let extensions = vcek
+            .inner
+            .tbs_certificate
+            .extensions
+            .as_mut()
+            .expect("VCEK should have extensions");
+        let extension = extensions
+            .iter_mut()
+            .find(|extension| {
+                extension.extn_id != super::oid::BASIC_CONSTRAINTS
+                    && extension.extn_id != super::oid::KEY_USAGE
+            })
+            .expect("VCEK should have at least one unsupported extension");
+
+        extension.critical = true;
+
+        vcek.validate_supported_critical_extensions()
+            .expect_err("Unsupported critical extension should fail");
     }
 }

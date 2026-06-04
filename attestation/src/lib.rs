@@ -28,16 +28,16 @@
 //! [`snp::verify`] is used to verify reports using provided collateral.
 //!
 //! ```no_run
+//! use tee_attestation_verification_lib::certificate_from_pem;
+//! use tee_attestation_verification_lib::snp::report::{AttestationReport, TryFromBytes};
 //! use tee_attestation_verification_lib::snp::verify::{self, ChainVerification};
-//! use tee_attestation_verification_lib::{certificate_from_pem, AttestationReport};
-//! use zerocopy::FromBytes;
 //!
 //! # async fn example<'a>(
 //! #     attestation_bytes: &'a [u8],
 //! #     vcek_pem: &'a [u8],
 //! #     ask_pem: &'a [u8],
 //! # ) -> Result<(), Box<dyn std::error::Error + 'a>> {
-//! let attestation_report = AttestationReport::read_from_bytes(attestation_bytes)?;
+//! let attestation_report = AttestationReport::try_read_from_bytes(attestation_bytes)?;
 //! let vcek = certificate_from_pem(vcek_pem)?;
 //! let ask = certificate_from_pem(ask_pem)?;
 //!
@@ -79,6 +79,13 @@ pub fn certificate_from_pem(pem: &[u8]) -> Result<Certificate, Box<dyn std::erro
 /// in [`snp::verify`].
 pub fn certificate_from_der(der: &[u8]) -> Result<Certificate, Box<dyn std::error::Error>> {
     Crypto::from_der(der)
+}
+
+/// Returns the certificate's Extended Key Usage OIDs as dotted-decimal strings.
+pub fn certificate_extended_key_usage_oids(
+    cert: &Certificate,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    Crypto::extended_key_usage_oids(cert)
 }
 
 #[cfg(feature = "kds")]

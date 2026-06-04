@@ -36,7 +36,9 @@
     Loads four inputs (a binary attestation report plus the ARK, ASK, and VCEK
     certificates in PEM form), calls
     <code>verify_attestation_async</code> from the WASM bindings, and renders
-    the verified report fields.
+    the verified report fields. The optional bundle splitter calls
+    <code>split_certificate_bundle</code> to populate ASK and ARK from a PEM
+    bundle.
   </p>
 
   <form id="form">
@@ -51,6 +53,14 @@
       <legend>VCEK (PEM)</legend>
       <input type="file" id="vcek-file" accept=".pem,.crt,.cert,text/plain" />
       <textarea id="vcek-text" rows="4" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>Optional ASK/ARK bundle splitter (PEM)</legend>
+      <p>Paste or upload a PEM bundle containing the ASK certificate followed by the ARK certificate.</p>
+      <input type="file" id="bundle-file" accept=".pem,.crt,.cert,text/plain" />
+      <textarea id="bundle-text" rows="8" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+      <button type="button" id="split-bundle">Split into ASK and ARK</button>
     </fieldset>
 
     <fieldset>

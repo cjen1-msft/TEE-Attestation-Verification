@@ -176,6 +176,7 @@ pub mod wasm {
     //! See `demos/web-verify-kernel/README.md` in the repository for a runnable
     //! browser demo that uses these bindings.
 
+    use js_sys::Array;
     use wasm_bindgen::prelude::*;
     use zerocopy::FromBytes;
 
@@ -232,6 +233,29 @@ pub mod wasm {
         Ok(SnpAttestationReport {
             bytes: report_bytes,
         })
+    }
+
+    /// Split a PEM certificate bundle into individual PEM certificates.
+    ///
+    /// Parses the bundle with the active crypto backend and returns certificates
+    /// in the same order they appeared in the input.
+    #[wasm_bindgen]
+    pub fn split_certificate_bundle(pem_bundle: &str) -> Result<Array, String> {
+        if pem_bundle.trim().is_empty() {
+            return Err("Certificate bundle PEM is empty".into());
+        }
+
+        let certificates = Crypto::from_pem_chain(pem_bundle.as_bytes())
+            .map_err(|e| format!("Failed to parse certificate bundle PEM: {e}"))?;
+
+        let split = Array::new();
+        for certificate in certificates {
+            let pem = Crypto::to_pem(&certificate)
+                .map_err(|e| format!("Failed to encode certificate PEM: {e}"))?;
+            split.push(&JsValue::from_str(&pem));
+        }
+
+        Ok(split)
     }
 
     fn parse_report(bytes: &[u8]) -> Result<&AttestationReport, VerifyError> {
@@ -500,6 +524,62 @@ pub mod wasm {
         #[wasm_bindgen(getter)]
         pub fn signature_s(&self) -> Vec<u8> {
             self.report().signature.s.to_vec()
+        }
+    }
+
+    #[cfg(test)]
+    mod split_tests {
+        use super::*;
+        use wasm_bindgen_test::wasm_bindgen_test;
+
+        const MILAN_ARK: &str = include_str!("../pinned_arks/milan_ark.pem");
+        const MILAN_ASK: &str = include_str!("../../tests/test_data/milan_ask.pem");
+
+        #[wasm_bindgen_test]
+        fn split_certificate_bundle_returns_pem_certificates_in_order() {
+            let bundle = format!("{MILAN_ASK}\n{MILAN_ARK}");
+
+            let split = split_certificate_bundle(&bundle).expect("bundle should split");
+
+            assert_eq!(split.length(), 2);
+            assert_certificate_matches_pem(&split, 0, MILAN_ASK);
+            assert_certificate_matches_pem(&split, 1, MILAN_ARK);
+        }
+
+        #[wasm_bindgen_test]
+        fn split_certificate_bundle_rejects_empty_bundle() {
+            let err = match split_certificate_bundle("") {
+                Ok(_) => panic!("empty bundle should fail"),
+                Err(err) => err,
+            };
+
+            assert!(err.contains("empty"));
+        }
+
+        #[wasm_bindgen_test]
+        fn split_certificate_bundle_rejects_invalid_pem() {
+            let err = match split_certificate_bundle("not a pem") {
+                Ok(_) => panic!("invalid bundle should fail"),
+                Err(err) => err,
+            };
+
+            assert!(err.contains("certificate bundle PEM"));
+        }
+
+        fn assert_certificate_matches_pem(split: &Array, index: u32, expected_pem: &str) {
+            let actual_pem = split
+                .get(index)
+                .as_string()
+                .expect("split certificate should be a PEM string");
+            let actual = Crypto::from_pem(actual_pem.as_bytes())
+                .expect("split certificate PEM should parse");
+            let expected =
+                Crypto::from_pem(expected_pem.as_bytes()).expect("fixture PEM should parse");
+
+            assert_eq!(
+                Crypto::to_der(&actual).expect("split certificate should encode as DER"),
+                Crypto::to_der(&expected).expect("fixture certificate should encode as DER")
+            );
         }
     }
 

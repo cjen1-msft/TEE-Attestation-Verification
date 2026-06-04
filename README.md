@@ -1,113 +1,74 @@
-# TEE-Attestation-Verification
+# TEE Attestation Verification
 
-A minimal-external-dependencies, portable and safe library for verifying a TEE attestation and its collateral, and returning to the caller the authenticated claims.
+Portable Rust libraries and demos for verifying trusted execution environment
+attestations.
 
-## Features
+The workspace currently focuses on AMD SEV-SNP attestation reports: parsing the
+report, verifying AMD certificate collateral, verifying the report signature,
+and returning authenticated report claims to callers.
 
-- **AMD SEV-SNP Attestation Verification**: Validates attestation reports from AMD EPYC processors
-- **WASM-Compatible**: Build for `wasm32` with a WebCrypto backend
-- **Azure Linux 3.0 compatible**: Build for Azure Linux 3.0, with `rust-openssl` as the sole dependency.
+## Workspace layout
 
-## Crypto Backends
+| Path | Package | Purpose |
+|---|---|---|
+| `crypto/` | `tee-attestation-verification-crypto` | Backend abstraction for certificate handling, certificate-chain verification, and signature verification. |
+| `attestation/` | `tee-attestation-verification-lib` | Public attestation verification APIs, SEV-SNP report types, KDS support, C ABI, and WASM bindings. |
+| `demos/web-verify-kernel/` | n/a | Browser demo that exercises the WASM attestation bindings. |
 
-At least one target-compatible crypto backend must be enabled.
-If multiple backends are enabled, the target-compatible backend is selected with `crypto_openssl` and `crypto_webcrypto` preferred over `crypto_pure_rust`.
+Read the crate-specific docs for API details:
 
-| Feature | Platforms | sync | async | Dependencies |
-|---|---|---|---|---|
-| `crypto_openssl` | Native | ✓ | ✓ | OpenSSL |
-| `crypto_webcrypto` | WASM only | | ✓ | WebCrypto API |
-| `crypto_pure_rust` | Native, WASM | ✓ | ✓ | Pure Rust (`p384`, `rsa`, `sha2`); selected when enabled and no target-preferred backend is enabled |
+- [`attestation/README.md`](attestation/README.md)
+- [`crypto/README.md`](crypto/README.md)
+- [`demos/web-verify-kernel/README.md`](demos/web-verify-kernel/README.md)
 
-## Optional Features
+## Crypto backend selection
 
-| Feature | Description |
-|---|---|
-| `kds` | Enables automatic certificate fetching from AMD's Key Distribution Service. Uses `curl`/`tokio` on native, `globalThis.fetch` on WASM. |
+At least one target-compatible backend must be enabled:
 
-## Usage
+| Feature | Platforms | sync | async | Notes |
+|---|---|---:|---:|---|
+| `crypto_openssl` | Native | yes | yes | Native OpenSSL-backed verification. |
+| `crypto_webcrypto` | WASM | no | yes | Browser/Node WebCrypto-backed verification. |
+| `crypto_pure_rust` | Native, WASM | yes | yes | Portable RustCrypto-backed verification. |
 
-Add the library to your `Cargo.toml` with a crypto backend:
+The attestation crate forwards these backend features to the crypto crate. Its
+default features defer to the crypto crate's defaults, while callers can disable
+defaults and choose a backend explicitly.
+
+## Quick start
 
 ```toml
 [dependencies]
-tee-attestation-verification-lib = { git = "https://github.com/microsoft/TEE-Attestation-Verification", tag = "tav-0.1.0", features = ["crypto_openssl"] }
+tee-attestation-verification-lib = { version = "1.0.1", features = ["crypto_pure_rust"] }
 ```
-
-### Offline verification (caller provides certificates)
-
-Parse the attestation report from its raw 1184-byte binary representation and verify with the synchronous API:
 
 ```rust
 use tee_attestation_verification_lib::snp::verify::{sync, ChainVerification};
 use tee_attestation_verification_lib::{certificate_from_pem, AttestationReport};
 use zerocopy::FromBytes;
 
-let attestation_report = AttestationReport::read_from_bytes(attestation_bytes)?;
+let report = AttestationReport::read_from_bytes(attestation_report_bytes)?;
 let vcek = certificate_from_pem(vcek_pem)?;
 let ask = certificate_from_pem(ask_pem)?;
 
-sync::verify_attestation(
-    &attestation_report,
-    &vcek,
-    &ChainVerification::WithPinnedArk { ask: &ask },
-)?;
+sync::verify_attestation(&report, &vcek, &ChainVerification::WithPinnedArk { ask: &ask })?;
 ```
 
-### KDS verification (automatic certificate fetching)
-
-Enable the `kds` feature to let the library fetch certificates from AMD's KDS:
+Enable `kds` to fetch AMD certificate collateral automatically:
 
 ```toml
 [dependencies]
-tee-attestation-verification-lib = { version = "0.1.0", features = ["crypto_openssl", "kds"] }
+tee-attestation-verification-lib = { version = "1.0.1", features = ["crypto_pure_rust", "kds"] }
 ```
 
-```rust
-use tee_attestation_verification_lib::{AttestationReport, SevVerifier};
-use zerocopy::FromBytes;
+## Publishing
 
-let attestation_report = AttestationReport::read_from_bytes(attestation_bytes)?;
-
-let mut verifier = SevVerifier::new().await?;
-verifier.verify_attestation(&attestation_report).await?;
-```
-
-## WASM
-
-Release tags use the `tav-<crate-version>` format.
-
-Releases include a WASM and JS wrapper tarball for direct consumption. The tarball contains the generated `wasm-pack` `pkg/` output for the WebCrypto backend.
-
-### Consuming a release tarball
-
-Download the matching GitHub release asset for your chosen `tav-<crate-version>` tag.
-
-### Building from source
-
-Build the library for `wasm32` with the WebCrypto backend:
-
-```bash
-wasm-pack build --target web --no-default-features --features "crypto_webcrypto,kds"
-```
-
-For a plain Cargo build targeting `wasm32-unknown-unknown`:
-
-```bash
-cargo build --target wasm32-unknown-unknown --no-default-features --features "crypto_webcrypto,kds"
-```
-
-## SEV-SNP Verification Process
-
-- **Certificate Validation**: Verifies the certificate chain from the ARK through the ASK to the VCEK, and the ARK against a root-of-trust
-- **Signature Validation**: Validates the attestation report signature was signed by the VCEK
-- **TCB Verification**: Confirms that the TCB values in the attestation report match the VCEK's X.509 v3 extensions.
-
-## Docs
-Docs are available locally by running:
-- `cargo doc` for native docs
-- `cargo doc --target wasm32-unknown-unknown` for WASM builds
+The attestation crate depends on the crypto crate with both a local `path` and a
+crates.io `version`, so local workspace builds use `../crypto` and published
+builds resolve from crates.io. Publish `tee-attestation-verification-crypto`
+before `tee-attestation-verification-lib`.
 
 ## Trademarks
 
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party's policies.
+

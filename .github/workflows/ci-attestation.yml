@@ -1,0 +1,119 @@
+name: "Attestation CI"
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  wasm:
+    name: WASM build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+
+      - name: Setup WASM tooling
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install wasm-bindgen-cli
+          cargo install wasm-pack --version 0.13.1 --locked
+
+      - name: Build WASM
+        working-directory: attestation
+        run: wasm-pack build --target web --no-default-features --features "crypto_pure_rust"
+
+      - name: Test WASM
+        working-directory: attestation
+        run: wasm-pack test --node --no-default-features --features "crypto_pure_rust"
+
+      - name: Build WASM with KDS
+        run: cargo build --manifest-path attestation/Cargo.toml --target wasm32-unknown-unknown --no-default-features --features "crypto_pure_rust,kds"
+
+  native:
+    name: Native build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+
+      - name: Build native
+        run: cargo build --manifest-path attestation/Cargo.toml --no-default-features --features "crypto_pure_rust"
+
+      - name: Test native
+        run: cargo test --manifest-path attestation/Cargo.toml --no-default-features --features "crypto_pure_rust" -- --nocapture
+
+      - name: Build native with KDS
+        run: cargo build --manifest-path attestation/Cargo.toml --no-default-features --features "crypto_pure_rust,kds"
+
+      - name: Test native with KDS
+        run: cargo test --manifest-path attestation/Cargo.toml --no-default-features --features "crypto_pure_rust,kds" -- --nocapture
+
+  coverage:
+    name: Attestation test coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+          rustup component add llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Clean coverage artifacts
+        run: cargo llvm-cov clean --workspace
+
+      - name: Collect coverage and LCOV report
+        run: |
+          cargo llvm-cov -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust" \
+            --lcov --output-path lcov.info \
+            --ignore-filename-regex '(^|/)(tests|demos|src/bin)/'
+
+      - name: Generate coverage summary
+        run: |
+          cargo llvm-cov report --summary-only \
+            -p tee-attestation-verification-lib \
+            --ignore-filename-regex '(^|/)(tests|demos|src/bin)/' \
+            | tee coverage-summary.txt
+          line_coverage=$(awk '/^TOTAL/ { print $10 }' coverage-summary.txt)
+          region_coverage=$(awk '/^TOTAL/ { print $4 }' coverage-summary.txt)
+          function_coverage=$(awk '/^TOTAL/ { print $7 }' coverage-summary.txt)
+          {
+            echo '## Attestation test coverage';
+            echo '';
+            echo "**Overall:** ${line_coverage} lines, ${region_coverage} regions, ${function_coverage} functions";
+            echo '';
+            echo '<details open>';
+            echo '<summary>Per-file coverage</summary>';
+            echo '';
+            echo '```';
+            cat coverage-summary.txt;
+            echo '```';
+            echo '';
+            echo '</details>';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-reports
+          path: |
+            lcov.info
+            coverage-summary.txt

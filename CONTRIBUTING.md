@@ -31,11 +31,11 @@ cargo install cargo-llvm-cov --locked
 cargo llvm-cov clean --workspace
 
 # Collect OpenSSL coverage data without reporting yet.
-cargo llvm-cov --no-default-features --features "crypto_openssl" \
+cargo llvm-cov -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl" \
     --no-report
 
 # Preserve the OpenSSL profile data, run pure_rust tests, and emit combined LCOV.
-cargo llvm-cov --no-default-features --features "crypto_pure_rust" \
+cargo llvm-cov -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust" \
     --no-clean --lcov --output-path lcov-combined.info \
     --ignore-filename-regex '(^|/)(tests|demos|src/bin)/'
 

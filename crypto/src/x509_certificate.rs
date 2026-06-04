@@ -112,11 +112,6 @@ fn validate_certificate_path_parameters(
     for (cert, is_leaf) in full_chain {
         let cert_subject = &cert.inner.tbs_certificate.subject;
 
-        // Validate that only supported critical extensions are present
-        cert.validate_supported_critical_extensions().map_err(|e| {
-            format!("Certificate for {cert_subject} contains unsupported critical extension: {e}")
-        })?;
-
         // basic cert processing
         {
             // Basic cert info
@@ -143,28 +138,18 @@ fn validate_certificate_path_parameters(
             // skip permitted subtree
             // skip excluded subtree
 
-            skip_rfc5280_step_because_critical_extension_is_unsupported(
-                skipped_rfc5280_step::CERTIFICATE_POLICIES,
-            );
+            assert_skipped_extension_not_critical_if_present(cert, oid::CERTIFICATE_POLICIES)?;
         }
 
-        skip_rfc5280_step_because_critical_extension_is_unsupported(
-            skipped_rfc5280_step::POLICY_MAPPINGS,
-        );
+        assert_skipped_extension_not_critical_if_present(cert, oid::POLICY_MAPPINGS)?;
 
         // Certificate signature already validated by caller
 
-        skip_rfc5280_step_because_critical_extension_is_unsupported(
-            skipped_rfc5280_step::NAME_CONSTRAINTS,
-        );
+        assert_skipped_extension_not_critical_if_present(cert, oid::NAME_CONSTRAINTS)?;
 
-        skip_rfc5280_step_because_critical_extension_is_unsupported(
-            skipped_rfc5280_step::POLICY_CONSTRAINTS,
-        );
+        assert_skipped_extension_not_critical_if_present(cert, oid::POLICY_CONSTRAINTS)?;
 
-        skip_rfc5280_step_because_critical_extension_is_unsupported(
-            skipped_rfc5280_step::INHIBIT_ANY_POLICY,
-        );
+        assert_skipped_extension_not_critical_if_present(cert, oid::INHIBIT_ANY_POLICY)?;
 
         if !is_leaf {
             if cert.inner.tbs_certificate.version != x509_cert::certificate::Version::V3 {
@@ -213,6 +198,10 @@ fn validate_certificate_path_parameters(
                 }
             }
         }
+
+        cert.validate_supported_critical_extensions().map_err(|e| {
+            format!("Certificate for {cert_subject} contains unsupported critical extension: {e}")
+        })?;
 
         prev_cert = cert;
     }
@@ -344,8 +333,15 @@ impl Certificate {
         };
 
         for extension in extensions {
-            if extension.critical && !is_supported_critical_extension(&extension.extn_id) {
-                return Err(unsupported_critical_extension_error(&extension.extn_id).into());
+            if extension.critical
+                && extension.extn_id != oid::BASIC_CONSTRAINTS
+                && extension.extn_id != oid::KEY_USAGE
+            {
+                return Err(format!(
+                    "Unsupported critical certificate extension: {}",
+                    extension.extn_id
+                )
+                .into());
             }
         }
 
@@ -517,88 +513,26 @@ fn parse_rsa_pss_signature_algorithm(parameters: AnyRef<'_>) -> Result<Signature
     Ok(SignatureKeyAlgorithm::RsaPss(expected_algorithm))
 }
 
-fn is_supported_critical_extension(oid: &ObjectIdentifier) -> bool {
-    *oid == oid::BASIC_CONSTRAINTS || *oid == oid::KEY_USAGE
-}
+fn assert_skipped_extension_not_critical_if_present(
+    cert: &Certificate,
+    oid: ObjectIdentifier,
+) -> Result<()> {
+    let Some(extensions) = cert.inner.tbs_certificate.extensions.as_ref() else {
+        return Ok(());
+    };
 
-fn unsupported_critical_extension_error(oid: &ObjectIdentifier) -> String {
-    if *oid == oid::NAME_CONSTRAINTS {
-        return "Critical nameConstraints extension is unsupported; non-critical nameConstraints are ignored by this constrained offline validator".to_string();
-    }
-
-    if is_policy_extension(oid) {
-        return format!(
-            "Critical policy extension {oid} is unsupported; non-critical policy extensions are ignored by this constrained offline validator"
-        );
-    }
-
-    format!("Unsupported critical certificate extension: {oid}")
-}
-
-fn is_policy_extension(oid: &ObjectIdentifier) -> bool {
-    *oid == oid::CERTIFICATE_POLICIES
-        || *oid == oid::POLICY_MAPPINGS
-        || *oid == oid::POLICY_CONSTRAINTS
-        || *oid == oid::INHIBIT_ANY_POLICY
-}
-
-fn skip_rfc5280_step_because_critical_extension_is_unsupported(step: SkippedRfc5280Step) {
-    let _ = step.rfc5280_step;
-    let _ = step.unsupported_critical_extension.oid();
-}
-
-#[derive(Clone, Copy)]
-struct SkippedRfc5280Step {
-    rfc5280_step: &'static str,
-    unsupported_critical_extension: UnsupportedCriticalExtension,
-}
-
-#[derive(Clone, Copy)]
-enum UnsupportedCriticalExtension {
-    CertificatePolicies,
-    PolicyMappings,
-    NameConstraints,
-    PolicyConstraints,
-    InhibitAnyPolicy,
-}
-
-impl UnsupportedCriticalExtension {
-    fn oid(self) -> ObjectIdentifier {
-        match self {
-            Self::CertificatePolicies => oid::CERTIFICATE_POLICIES,
-            Self::PolicyMappings => oid::POLICY_MAPPINGS,
-            Self::NameConstraints => oid::NAME_CONSTRAINTS,
-            Self::PolicyConstraints => oid::POLICY_CONSTRAINTS,
-            Self::InhibitAnyPolicy => oid::INHIBIT_ANY_POLICY,
+    for cert_extension in extensions {
+        if cert_extension.extn_id == oid && cert_extension.critical {
+            return Err(format!(
+                "Cannot skip RFC 5280 processing for critical extension {}",
+                oid
+            )
+            .into());
         }
     }
+
+    Ok(())
 }
-
-mod skipped_rfc5280_step {
-    use super::{SkippedRfc5280Step, UnsupportedCriticalExtension};
-
-    pub const CERTIFICATE_POLICIES: SkippedRfc5280Step = SkippedRfc5280Step {
-        rfc5280_step: "certificate policies",
-        unsupported_critical_extension: UnsupportedCriticalExtension::CertificatePolicies,
-    };
-    pub const POLICY_MAPPINGS: SkippedRfc5280Step = SkippedRfc5280Step {
-        rfc5280_step: "policy mappings",
-        unsupported_critical_extension: UnsupportedCriticalExtension::PolicyMappings,
-    };
-    pub const NAME_CONSTRAINTS: SkippedRfc5280Step = SkippedRfc5280Step {
-        rfc5280_step: "name constraints",
-        unsupported_critical_extension: UnsupportedCriticalExtension::NameConstraints,
-    };
-    pub const POLICY_CONSTRAINTS: SkippedRfc5280Step = SkippedRfc5280Step {
-        rfc5280_step: "policy constraints",
-        unsupported_critical_extension: UnsupportedCriticalExtension::PolicyConstraints,
-    };
-    pub const INHIBIT_ANY_POLICY: SkippedRfc5280Step = SkippedRfc5280Step {
-        rfc5280_step: "inhibit anyPolicy",
-        unsupported_critical_extension: UnsupportedCriticalExtension::InhibitAnyPolicy,
-    };
-}
-
 mod oid {
     use x509_cert::der::oid::ObjectIdentifier;
 
@@ -875,16 +809,5 @@ mod test {
 
         vcek.validate_supported_critical_extensions()
             .expect_err("Unsupported critical extension should fail");
-    }
-
-    #[test]
-    fn critical_name_constraints_and_policy_extensions_are_documented_as_unsupported() {
-        let name_constraints_error =
-            super::unsupported_critical_extension_error(&super::oid::NAME_CONSTRAINTS);
-        let policy_error =
-            super::unsupported_critical_extension_error(&super::oid::CERTIFICATE_POLICIES);
-
-        assert!(name_constraints_error.contains("non-critical nameConstraints are ignored"));
-        assert!(policy_error.contains("non-critical policy extensions are ignored"));
     }
 }

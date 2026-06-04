@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.2]
+
+[1.0.2]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.2
+
+### Added
+
+- Refactor to separate out crypto module and demos
+- Refactor testing
+  - Improve code coverage
+- Refactor testing ci job
+- Backend traits for signatures
+- tighten chain verification
+  - remove Certificate::verify<Certificate> as it could be easily misused
+- Version script and trademark headers
+
 ## [1.0.1]
 
 [1.0.1]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.1

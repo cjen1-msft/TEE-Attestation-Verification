@@ -21,7 +21,6 @@ use rsa::{
 use sha2::Sha384;
 
 use super::signature as signature_types;
-use super::verifier::{Async as AsyncVerifier, Sync as Verifier};
 use super::x509_certificate::{self, Certificate};
 use super::{
     CertificateBackend, CryptoBackend, EcSignatureKeyAlgorithm, Result,
@@ -44,19 +43,6 @@ impl SignatureBackend for Crypto {
 impl Crypto {
     pub fn key_from_spki_der(spki_der: &[u8], algorithm: SignatureKeyAlgorithm) -> Result<Key> {
         Key::from_spki_der(spki_der, algorithm)
-    }
-}
-
-impl Verifier<Certificate> for Certificate {
-    fn verify(&self, subject: &Certificate) -> Result<()> {
-        self.validate_trust_anchor_for_subject(subject, now_unix_duration()?)?;
-        verify_certificate_signature(self, subject)
-    }
-}
-
-impl AsyncVerifier<Certificate> for Certificate {
-    async fn verify(&self, subject: &Certificate) -> Result<()> {
-        Verifier::verify(self, subject)
     }
 }
 
@@ -98,26 +84,19 @@ impl CertificateBackend for Crypto {
 
 impl CryptoBackend for Crypto {
     fn verify_chain(
-        trusted_certs: &[&Certificate],
+        trusted_cert: &Certificate,
         untrusted_chain: &[&Certificate],
         leaf: &Certificate,
     ) -> Result<()> {
         let now = now_unix_duration()?;
 
-        trusted_certs
-            .iter()
-            .find(|trusted_root| {
-                x509_certificate::verify_ordered_chain(
-                    verify_certificate_signature,
-                    trusted_root,
-                    untrusted_chain,
-                    leaf,
-                    now,
-                )
-                .is_ok()
-            })
-            .ok_or("Failed to verify certificate: no matching trusted issuer".into())
-            .map(|_| ())
+        x509_certificate::verify_ordered_chain(
+            verify_certificate_signature,
+            trusted_cert,
+            untrusted_chain,
+            leaf,
+            now,
+        )
     }
 }
 

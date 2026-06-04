@@ -26,7 +26,6 @@ use openssl_sys::{
 };
 
 use super::signature as signature_types;
-use super::verifier::{Async as AsyncVerifier, Sync as Verifier};
 use super::{
     CertificateBackend, CryptoBackend, DigestAlgorithm, EcSignatureKeyAlgorithm, Result,
     RsaPssSignatureKeyAlgorithm, Signature, SignatureBackend, SignatureEncoding,
@@ -169,14 +168,12 @@ fn asn1_object_to_numeric_string(object: &Asn1ObjectRef) -> Result<String> {
 
 impl CryptoBackend for Crypto {
     fn verify_chain(
-        trusted_certs: &[&Certificate],
+        trusted_cert: &Certificate,
         untrusted_chain: &[&Certificate],
         leaf: &Certificate,
     ) -> Result<()> {
         let mut store_builder = openssl::x509::store::X509StoreBuilder::new()?;
-        for cert in trusted_certs {
-            store_builder.add_cert((*cert).to_owned())?;
-        }
+        store_builder.add_cert(trusted_cert.to_owned())?;
         store_builder.set_flags(X509VerifyFlags::PARTIAL_CHAIN)?;
         let store = store_builder.build();
         let mut ctx = openssl::x509::X509StoreContext::new()?;
@@ -189,18 +186,6 @@ impl CryptoBackend for Crypto {
             Ok(false) => Err("Certificate verification failed".into()),
             Err(e) => Err(Box::new(e)),
         }
-    }
-}
-
-impl Verifier<Certificate> for Certificate {
-    fn verify(&self, other: &Certificate) -> Result<()> {
-        <Crypto as CryptoBackend>::verify_chain(&[self], &[], other)
-    }
-}
-
-impl AsyncVerifier<Certificate> for Certificate {
-    async fn verify(&self, other: &Certificate) -> Result<()> {
-        Verifier::verify(self, other)
     }
 }
 

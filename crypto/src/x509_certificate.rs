@@ -286,6 +286,7 @@ impl Certificate {
         parse_signature_algorithm(&self.inner.signature_algorithm)
     }
 
+    #[cfg(test)]
     pub fn subject_matches_issuer_of(&self, subject: &Self) -> bool {
         // This constrained validator intentionally uses strict structural Name
         // equality rather than the full RFC 5280 Section 7.1 comparison rules.
@@ -385,24 +386,6 @@ impl Certificate {
                 )
                 .into());
             }
-        }
-
-        Ok(())
-    }
-
-    pub fn validate_trust_anchor_for_subject(
-        &self,
-        subject: &Self,
-        unix_time: Duration,
-    ) -> Result<()> {
-        subject.validate_supported_critical_extensions()?;
-
-        if !self.subject_matches_issuer_of(subject) {
-            return Err("Certificate issuer name does not match trust anchor subject name".into());
-        }
-
-        if !subject.is_valid_at(unix_time) {
-            return Err("Subject certificate is not valid at verification time".into());
         }
 
         Ok(())

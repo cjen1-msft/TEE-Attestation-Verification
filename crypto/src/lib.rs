@@ -66,28 +66,20 @@ pub trait CertificateBackend {
 }
 
 /// Backend-internal trait for certificate verification operations.
-pub trait CryptoBackend: CertificateBackend + SignatureBackend
-where
-    <Self as CertificateBackend>::Certificate:
-        verifier::Sync<<Self as CertificateBackend>::Certificate>,
-{
-    /// Verify a certificate chain from `trusted_certs` through `untrusted_chain` to `leaf`.
+pub trait CryptoBackend: CertificateBackend + SignatureBackend {
+    /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
     fn verify_chain(
-        trusted_certs: &[&<Self as CertificateBackend>::Certificate],
+        trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
         leaf: &<Self as CertificateBackend>::Certificate,
     ) -> Result<()>;
 }
 
 /// Backend-internal trait for asynchronous certificate verification operations.
-pub trait AsyncCryptoBackend: CertificateBackend + SignatureBackend
-where
-    <Self as CertificateBackend>::Certificate:
-        verifier::Async<<Self as CertificateBackend>::Certificate>,
-{
-    /// Verify a certificate chain from `trusted_certs` through `untrusted_chain` to `leaf`.
+pub trait AsyncCryptoBackend: CertificateBackend + SignatureBackend {
+    /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
     fn verify_chain(
-        trusted_certs: &[&<Self as CertificateBackend>::Certificate],
+        trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
         leaf: &<Self as CertificateBackend>::Certificate,
     ) -> impl std::future::Future<Output = Result<()>>;
@@ -96,15 +88,13 @@ where
 impl<C> AsyncCryptoBackend for C
 where
     C: CryptoBackend,
-    <C as CertificateBackend>::Certificate: verifier::Sync<<C as CertificateBackend>::Certificate>
-        + verifier::Async<<C as CertificateBackend>::Certificate>,
 {
     async fn verify_chain(
-        trusted_certs: &[&<Self as CertificateBackend>::Certificate],
+        trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
         leaf: &<Self as CertificateBackend>::Certificate,
     ) -> Result<()> {
-        <C as CryptoBackend>::verify_chain(trusted_certs, untrusted_chain, leaf)
+        <C as CryptoBackend>::verify_chain(trusted_cert, untrusted_chain, leaf)
     }
 }
 
@@ -195,13 +185,12 @@ mod test {
 
     #[cfg(sync_crypto)]
     mod sync_tests {
-        use super::super::verifier::Sync as Verifier;
         use super::*;
 
         #[test]
         fn full_chain_verifies() {
             <Crypto as CryptoBackend>::verify_chain(
-                &[&cert(MILAN_ARK)],
+                &cert(MILAN_ARK),
                 &[&cert(MILAN_ASK)],
                 &cert(MILAN_VCEK),
             )
@@ -209,36 +198,26 @@ mod test {
         }
 
         #[test]
-        fn empty_trust_store_fails() {
-            <Crypto as CryptoBackend>::verify_chain(&[], &[], &cert(MILAN_VCEK))
-                .expect_err("Should fail with no trusted certs");
+        fn wrong_trusted_cert_fails() {
+            <Crypto as CryptoBackend>::verify_chain(&cert(MILAN_VCEK), &[], &cert(MILAN_ASK))
+                .expect_err("Should fail with wrong trusted cert");
         }
 
         #[test]
         fn untrusted_intermediates_are_required() {
-            <Crypto as CryptoBackend>::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_VCEK))
+            <Crypto as CryptoBackend>::verify_chain(&cert(MILAN_ARK), &[], &cert(MILAN_VCEK))
                 .expect_err("VCEK should not verify without ASK intermediate");
         }
 
         #[test]
         fn self_signed_certificates() {
-            <Crypto as CryptoBackend>::verify_chain(&[&cert(MILAN_ARK)], &[], &cert(MILAN_ARK))
+            <Crypto as CryptoBackend>::verify_chain(&cert(MILAN_ARK), &[], &cert(MILAN_ARK))
                 .unwrap();
-        }
-
-        #[test]
-        fn verifier_trait_impl() {
-            let ark = cert(MILAN_ARK);
-            let ask = cert(MILAN_ASK);
-
-            ark.verify(&ark).unwrap();
-            ark.verify(&ask).unwrap();
         }
     }
 
     #[cfg(async_crypto)]
     mod async_tests {
-        use super::super::verifier::Async as Verifier;
         use super::super::AsyncCryptoBackend;
         use super::*;
 
@@ -249,7 +228,7 @@ mod test {
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn full_chain_verifies() {
             <Crypto as AsyncCryptoBackend>::verify_chain(
-                &[&cert(MILAN_ARK)],
+                &cert(MILAN_ARK),
                 &[&cert(MILAN_ASK)],
                 &cert(MILAN_VCEK),
             )
@@ -259,44 +238,26 @@ mod test {
 
         #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
-        async fn empty_trust_store_fails() {
-            <Crypto as AsyncCryptoBackend>::verify_chain(&[], &[], &cert(MILAN_VCEK))
+        async fn wrong_trusted_cert_fails() {
+            <Crypto as AsyncCryptoBackend>::verify_chain(&cert(MILAN_VCEK), &[], &cert(MILAN_ASK))
                 .await
-                .expect_err("Should fail with no trusted certs");
+                .expect_err("Should fail with wrong trusted cert");
         }
 
         #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn untrusted_intermediates_are_required() {
-            <Crypto as AsyncCryptoBackend>::verify_chain(
-                &[&cert(MILAN_ARK)],
-                &[],
-                &cert(MILAN_VCEK),
-            )
-            .await
-            .expect_err("VCEK should not verify without ASK intermediate");
+            <Crypto as AsyncCryptoBackend>::verify_chain(&cert(MILAN_ARK), &[], &cert(MILAN_VCEK))
+                .await
+                .expect_err("VCEK should not verify without ASK intermediate");
         }
 
         #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
         #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
         async fn self_signed_certificates() {
-            <Crypto as AsyncCryptoBackend>::verify_chain(
-                &[&cert(MILAN_ARK)],
-                &[],
-                &cert(MILAN_ARK),
-            )
-            .await
-            .unwrap();
-        }
-
-        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-        #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
-        async fn verifier_trait_impl() {
-            let ark = cert(MILAN_ARK);
-            let ask = cert(MILAN_ASK);
-
-            ark.verify(&ark).await.unwrap();
-            ark.verify(&ask).await.unwrap();
+            <Crypto as AsyncCryptoBackend>::verify_chain(&cert(MILAN_ARK), &[], &cert(MILAN_ARK))
+                .await
+                .unwrap();
         }
     }
 }

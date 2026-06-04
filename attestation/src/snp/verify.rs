@@ -129,13 +129,13 @@ pub mod sync {
                 ark_matches_pinned(generation, ark)
                     .map_err(|e| VerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
 
-                Crypto::verify_chain(&[ark], &[ask], vcek)
+                Crypto::verify_chain(ark, &[ask], vcek)
                     .map_err(|e| VerificationError::CertificateChainError(format!("{:?}", e)))?;
             }
             ChainVerification::WithPinnedArk { ask } => {
                 let pinned_ark = crate::pinned_arks::get_ark(generation)
                     .map_err(|e| VerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
-                Crypto::verify_chain(&[&pinned_ark], &[ask], vcek)
+                Crypto::verify_chain(&pinned_ark, &[ask], vcek)
                     .map_err(|e| VerificationError::CertificateChainError(format!("{:?}", e)))?;
             }
             ChainVerification::Skip => {}
@@ -183,14 +183,14 @@ pub mod asynchronous {
                 ark_matches_pinned(generation, ark)
                     .map_err(|e| VerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
 
-                Crypto::verify_chain(&[ark], &[ask], vcek)
+                Crypto::verify_chain(ark, &[ask], vcek)
                     .await
                     .map_err(|e| VerificationError::CertificateChainError(format!("{:?}", e)))?;
             }
             ChainVerification::WithPinnedArk { ask } => {
                 let pinned_ark = crate::pinned_arks::get_ark(generation)
                     .map_err(|e| VerificationError::InvalidRootCertificate(format!("{:?}", e)))?;
-                Crypto::verify_chain(&[&pinned_ark], &[ask], vcek)
+                Crypto::verify_chain(&pinned_ark, &[ask], vcek)
                     .await
                     .map_err(|e| VerificationError::CertificateChainError(format!("{:?}", e)))?;
             }

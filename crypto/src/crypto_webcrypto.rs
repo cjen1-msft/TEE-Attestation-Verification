@@ -16,7 +16,6 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 use super::signature as signature_types;
-use super::verifier::Async as AsyncVerifier;
 use super::x509_certificate::{self, Certificate as X509Certificate};
 use super::{
     AsyncCryptoBackend, CertificateBackend, EcSignatureKeyAlgorithm, Result,
@@ -53,14 +52,6 @@ impl Crypto {
 impl Certificate {
     fn from_inner(inner: X509Certificate) -> Self {
         Self { inner }
-    }
-}
-
-impl AsyncVerifier<Certificate> for Certificate {
-    async fn verify(&self, subject: &Certificate) -> Result<()> {
-        self.inner
-            .validate_trust_anchor_for_subject(&subject.inner, now_unix_duration()?)?;
-        self.verify_signature(subject).await
     }
 }
 
@@ -128,14 +119,10 @@ impl Key {
 
 impl AsyncCryptoBackend for Crypto {
     async fn verify_chain(
-        trusted_certs: &[&Self::Certificate],
+        trusted_cert: &Self::Certificate,
         untrusted_chain: &[&Self::Certificate],
         leaf: &Self::Certificate,
     ) -> Result<()> {
-        let trusted_x509 = trusted_certs
-            .iter()
-            .map(|cert| &cert.inner)
-            .collect::<Vec<_>>();
         let untrusted_x509 = untrusted_chain
             .iter()
             .map(|cert| &cert.inner)
@@ -143,28 +130,14 @@ impl AsyncCryptoBackend for Crypto {
 
         let now = now_unix_duration()?;
 
-        for trusted_root in trusted_x509 {
-            if x509_certificate::verify_ordered_chain_async(
-                |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
-                trusted_root,
-                &untrusted_x509,
-                &leaf.inner,
-                now,
-            )
-            .await
-            .is_ok()
-            {
-                return Ok(());
-            }
-        }
-
-        Err("Failed to verify certificate: no matching trusted issuer".into())
-    }
-}
-
-impl Certificate {
-    async fn verify_signature(&self, subject: &Certificate) -> Result<()> {
-        verify_x509_certificate_signature(&self.inner, &subject.inner).await
+        x509_certificate::verify_ordered_chain_async(
+            |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
+            &trusted_cert.inner,
+            &untrusted_x509,
+            &leaf.inner,
+            now,
+        )
+        .await
     }
 }
 

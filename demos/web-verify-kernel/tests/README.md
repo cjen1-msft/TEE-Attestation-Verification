@@ -16,7 +16,7 @@ directory (so the page's `./pkg/...` import resolves):
 
 ```sh
 cd attestation
-wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
+wasm-pack build --target web --out-dir ../demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
 ```
 
 Rerun this whenever you change Rust sources under `attestation/src/` or `crypto/src/`.

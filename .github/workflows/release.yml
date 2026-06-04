@@ -122,16 +122,16 @@ jobs:
 
       - name: Build WASM for the web-verify-kernel demo
         working-directory: attestation
-        run: wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
+        run: wasm-pack build --target web --out-dir ../demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
 
       - name: Install web-verify-kernel demo test deps
-        working-directory: attestation/demos/web-verify-kernel/tests
+        working-directory: demos/web-verify-kernel/tests
         run: |
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
 
       - name: Run web-verify-kernel demo e2e test
-        working-directory: attestation/demos/web-verify-kernel/tests
+        working-directory: demos/web-verify-kernel/tests
         run: npm test
 
   package_wasm:

@@ -130,7 +130,7 @@ impl AsyncCryptoBackend for Crypto {
 
         let now = now_unix_duration()?;
 
-        x509_certificate::verify_ordered_chain_async(
+        x509_certificate::verify_certificate_path_async(
             |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
             &trusted_cert.inner,
             &untrusted_x509,

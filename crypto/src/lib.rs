@@ -30,13 +30,15 @@ pub mod verifier {
     }
 }
 
-/// Backend-internal trait for key and signature primitive types.
+/// API for the key and signature types of the backend
 pub trait SignatureBackend {
+    // Backend-Native key
     type Key;
+    // Backend-Native signature type, may borrow from the input data for zero-copy verification
     type Signature<'a>;
 }
 
-/// Backend-internal trait for certificate parsing, encoding, and inspection.
+/// API for the certificate types of the backend
 pub trait CertificateBackend {
     type Certificate: Clone;
 
@@ -65,7 +67,7 @@ pub trait CertificateBackend {
     fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>>;
 }
 
-/// Backend-internal trait for certificate verification operations.
+/// Synchronous API for a cryptographic backend
 pub trait CryptoBackend: CertificateBackend + SignatureBackend {
     /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
     fn verify_chain(
@@ -75,7 +77,7 @@ pub trait CryptoBackend: CertificateBackend + SignatureBackend {
     ) -> Result<()>;
 }
 
-/// Backend-internal trait for asynchronous certificate verification operations.
+/// Asynchronous API for a cryptographic backend
 pub trait AsyncCryptoBackend: CertificateBackend + SignatureBackend {
     /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
     fn verify_chain(
@@ -85,6 +87,7 @@ pub trait AsyncCryptoBackend: CertificateBackend + SignatureBackend {
     ) -> impl std::future::Future<Output = Result<()>>;
 }
 
+/// Any synchronous `CryptoBackend` also implements `AsyncCryptoBackend` by blocking on the synchronous verification.
 impl<C> AsyncCryptoBackend for C
 where
     C: CryptoBackend,

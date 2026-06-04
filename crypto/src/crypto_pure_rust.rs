@@ -90,7 +90,7 @@ impl CryptoBackend for Crypto {
     ) -> Result<()> {
         let now = now_unix_duration()?;
 
-        x509_certificate::verify_ordered_chain(
+        x509_certificate::verify_certificate_path(
             verify_certificate_signature,
             trusted_cert,
             untrusted_chain,

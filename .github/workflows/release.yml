@@ -92,33 +92,37 @@ jobs:
           cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Build with openssl
-        run: cargo build --no-default-features --features "crypto_openssl"
+        run: cargo build -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl"
 
       - name: Test offline with openssl
-        run: cargo test --no-default-features --features "crypto_openssl" -- --nocapture
+        run: cargo test -p tee-attestation-verification-lib --no-default-features --features "crypto_openssl" -- --nocapture
 
       - name: Build with pure_rust crypto
-        run: cargo build --no-default-features --features "crypto_pure_rust"
+        run: cargo build -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust"
 
       - name: Test offline with pure_rust crypto
-        run: cargo test --no-default-features --features "crypto_pure_rust" -- --nocapture
+        run: cargo test -p tee-attestation-verification-lib --no-default-features --features "crypto_pure_rust" -- --nocapture
 
       - name: Build WASM with WebCrypto crypto
+        working-directory: attestation
         run: wasm-pack build --target web --no-default-features --features "crypto_webcrypto"
 
       - name: Test WASM offline
+        working-directory: attestation
         run: wasm-pack test --node --no-default-features --features "crypto_pure_rust"
 
       - name: Test WASM offline with WebCrypto backend
+        working-directory: attestation
         run: wasm-pack test --node --no-default-features --features "crypto_webcrypto"
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Build WASM for the web-verify-kernel demo
-        run: wasm-pack build --target web --out-dir demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
+        working-directory: attestation
+        run: wasm-pack build --target web --out-dir ../demos/web-verify-kernel/pkg --no-default-features --features "crypto_webcrypto"
 
       - name: Install web-verify-kernel demo test deps
         working-directory: demos/web-verify-kernel/tests
@@ -157,6 +161,7 @@ jobs:
 
       - name: Build release WASM with WebCrypto crypto
         shell: bash
+        working-directory: attestation
         run: |
           set -euo pipefail
           wasm-pack build --target web --release --no-default-features --features "crypto_webcrypto"
@@ -174,7 +179,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-artifacts
-          path: dist/*
+          path: attestation/dist/*
 
   create_release:
     name: Create release

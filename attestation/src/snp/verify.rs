@@ -335,9 +335,10 @@ mod tests {
 
     use super::{extension_value_matches, verify_tcb_values};
 
-    const MILAN_ASK: &[u8] = include_bytes!("../crypto/test_data/milan_ask.pem");
-    const MILAN_VCEK: &[u8] = include_bytes!("../crypto/test_data/milan_vcek.pem");
-    const MILAN_REPORT: &[u8] = include_bytes!("../crypto/test_data/milan_attestation_report.bin");
+    const MILAN_ASK: &[u8] = include_bytes!("../../tests/test_data/milan_ask.pem");
+    const MILAN_VCEK: &[u8] = include_bytes!("../../tests/test_data/milan_vcek.pem");
+    const MILAN_REPORT: &[u8] =
+        include_bytes!("../../tests/test_data/milan_attestation_report.bin");
     const TURIN_REPORT: &[u8] =
         include_bytes!("../../tests/test_data/turin_attestation_report.bin");
     const TURIN_KDS_ASK: &[u8] = include_bytes!("../../tests/test_data/turin_kds_ask.pem");

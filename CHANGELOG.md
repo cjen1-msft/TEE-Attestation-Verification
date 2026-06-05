@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2]
+
+[1.0.2]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.2
+
+### Changed
+
+- Expose the crypto backend as its own crate. (#51)
+
 ## [1.0.1]
 
 [1.0.1]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.1

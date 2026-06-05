@@ -110,14 +110,12 @@ mod oid {
 #[cfg(test)]
 mod test {
     use x509_cert::der::Encode;
-    use zerocopy::TryFromBytes;
 
     use super::{Certificate, SignatureAlgorithm};
 
     const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
     const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
     const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
-    const MILAN_REPORT: &[u8] = include_bytes!("test_data/milan_attestation_report.bin");
 
     fn cert(pem: &[u8]) -> Certificate {
         Certificate::from_pem(pem).unwrap()
@@ -150,32 +148,33 @@ mod test {
     #[test]
     fn extension_lookup_returns_expected_bootloader_value() {
         let vcek = cert(MILAN_VCEK);
-        let report = crate::AttestationReport::try_read_from_bytes(MILAN_REPORT)
-            .expect("Failed to parse attestation report")
-            .clone();
-        let tcb = report.reported_tcb.as_milan_genoa();
 
         let bootloader = vcek
             .get_extension_value_by_oid("1.3.6.1.4.1.3704.1.3.1")
             .expect("BootLoader OID lookup should succeed")
             .expect("BootLoader OID should be present in Milan VCEK");
 
-        assert_eq!(bootloader, vec![0x02, 0x01, tcb.boot_loader]);
+        assert_eq!(bootloader, vec![0x02, 0x01, 0x04]);
     }
 
     #[test]
     fn extension_lookup_returns_expected_hwid_value() {
         let vcek = cert(MILAN_VCEK);
-        let report = crate::AttestationReport::try_read_from_bytes(MILAN_REPORT)
-            .expect("Failed to parse attestation report")
-            .clone();
 
         let hwid = vcek
             .get_extension_value_by_oid("1.3.6.1.4.1.3704.1.4")
             .expect("HWID OID lookup should succeed")
             .expect("HWID OID should be present in Milan VCEK");
 
-        assert_eq!(hwid, report.chip_id.as_slice());
+        assert_eq!(
+            hwid,
+            [
+                79, 251, 92, 180, 253, 89, 79, 63, 238, 101, 40, 252, 63, 177, 3, 112, 187, 56,
+                171, 232, 157, 205, 91, 162, 207, 10, 182, 161, 29, 242, 202, 40, 42, 221, 81, 107,
+                239, 69, 168, 144, 168, 201, 249, 115, 43, 220, 166, 143, 159, 63, 22, 196, 46,
+                132, 96, 48, 168, 0, 41, 93, 190, 177, 155, 165,
+            ]
+        );
     }
 
     #[test]

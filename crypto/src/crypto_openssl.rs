@@ -18,9 +18,8 @@ use openssl_sys::{
     X509_get_ext_by_OBJ,
 };
 
-use super::verifier::Sync as Verifier;
-use super::{CertificateBackend, CryptoBackend, Result};
-use crate::snp::report::{AttestationReport, Signature};
+use super::verifier::{Async as AsyncVerifier, Sync as Verifier};
+use super::{CertificateBackend, CryptoBackend, ReportSignatureVerifier, Result};
 
 pub struct Crypto;
 
@@ -126,15 +125,20 @@ impl Verifier<Certificate> for Certificate {
     }
 }
 
+impl AsyncVerifier<Certificate> for Certificate {
+    async fn verify(&self, other: &Certificate) -> Result<()> {
+        Verifier::verify(self, other)
+    }
+}
+
 fn verify_report_sig_ecdsa_p384_sha384(
     cert: &Certificate,
     signed_bytes: &[u8],
-    signature: Signature,
+    mut r: [u8; 72],
+    mut s: [u8; 72],
 ) -> Result<()> {
     let msg_hash = openssl::hash::hash(openssl::hash::MessageDigest::sha384(), signed_bytes)?;
 
-    let mut r = signature.r;
-    let mut s = signature.s;
     // reverse to bring into big-endian format
     r.reverse();
     s.reverse();
@@ -153,16 +157,13 @@ fn verify_report_sig_ecdsa_p384_sha384(
     }
 }
 
-impl Verifier<AttestationReport> for Certificate {
-    fn verify(&self, report: &AttestationReport) -> Result<()> {
-        let signed_bytes = report.signed_bytes();
-        match report.signature_algo.get() {
-            0x0001 => verify_report_sig_ecdsa_p384_sha384(self, signed_bytes, report.signature),
-            _ => Err(format!(
-                "Unsupported signature algorithm: 0x{:04X}",
-                report.signature_algo.get()
-            )
-            .into()),
-        }
+impl ReportSignatureVerifier for Crypto {
+    fn verify_ecdsa_p384_sha384_signature(
+        cert: &Self::Certificate,
+        signed_bytes: &[u8],
+        r: [u8; 72],
+        s: [u8; 72],
+    ) -> Result<()> {
+        verify_report_sig_ecdsa_p384_sha384(cert, signed_bytes, r, s)
     }
 }

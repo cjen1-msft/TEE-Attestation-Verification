@@ -50,5 +50,7 @@ fn main() {
         println!("cargo:rustc-cfg=async_crypto");
     }
 
+    println!("cargo::metadata=sync_crypto={sync_crypto}");
+    println!("cargo::metadata=async_crypto={async_crypto}");
     println!("cargo:rustc-cfg=crypto_backend=\"{crypto_backend}\"");
 }

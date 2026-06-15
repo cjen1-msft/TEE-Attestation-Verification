@@ -12,7 +12,7 @@ use foreign_types::{ForeignType, ForeignTypeRef};
 use openssl::asn1::{Asn1Object, Asn1ObjectRef, Asn1Time};
 use openssl::bn::BigNum;
 use openssl::ecdsa::EcdsaSig;
-use openssl::hash::MessageDigest;
+use openssl::hash::{hash, MessageDigest};
 use openssl::nid::Nid;
 use openssl::pkey::{PKey, Public};
 use openssl::rsa::Padding;
@@ -30,8 +30,8 @@ use std::cmp::Ordering;
 
 use super::{
     compatible_key_and_signature, CertificateBackend, CryptoBackend, DigestAlgorithm,
-    EcSignatureKeyAlgorithm, KeyBackend, Result, RsaPssSignatureKeyAlgorithm, SignatureBackend,
-    SignatureKeyAlgorithm,
+    EcSignatureKeyAlgorithm, KeyBackend, Result, RsaPkcs1v15SignatureKeyAlgorithm,
+    RsaPssSignatureKeyAlgorithm, SignatureBackend, SignatureKeyAlgorithm,
 };
 
 pub struct Crypto;
@@ -52,6 +52,10 @@ pub enum Signature {
         algorithm: RsaPssSignatureKeyAlgorithm,
         raw: Vec<u8>,
     },
+    RsaPkcs1v15 {
+        algorithm: RsaPkcs1v15SignatureKeyAlgorithm,
+        raw: Vec<u8>,
+    },
 }
 
 enum OpenSslKeyVerification {
@@ -60,6 +64,9 @@ enum OpenSslKeyVerification {
     },
     RsaPss {
         algorithm: RsaPssSignatureKeyAlgorithm,
+    },
+    RsaPkcs1v15 {
+        algorithm: RsaPkcs1v15SignatureKeyAlgorithm,
     },
 }
 
@@ -82,6 +89,10 @@ impl SignatureBackend for Signature {
                 Ok(Self::Ecdsa { algorithm, der })
             }
             SignatureKeyAlgorithm::RsaPss(algorithm) => Ok(Self::RsaPss {
+                algorithm,
+                raw: signature.to_vec(),
+            }),
+            SignatureKeyAlgorithm::RsaPkcs1v15(algorithm) => Ok(Self::RsaPkcs1v15 {
                 algorithm,
                 raw: signature.to_vec(),
             }),
@@ -287,6 +298,10 @@ impl CryptoBackend for Crypto {
     type Key = Key;
     type Signature = Signature;
 
+    fn digest(algorithm: DigestAlgorithm, bytes: &[u8]) -> Result<Vec<u8>> {
+        Ok(hash(message_digest(algorithm), bytes)?.to_vec())
+    }
+
     fn verify_signature(
         key: &Self::Key,
         signature: &Self::Signature,
@@ -370,6 +385,11 @@ impl OpenSslKeyVerification {
                     .map_err(|e| format!("Failed to parse RSA public key: {:?}", e))?;
                 Ok(Self::RsaPss { algorithm })
             }
+            SignatureKeyAlgorithm::RsaPkcs1v15(algorithm) => {
+                key.rsa()
+                    .map_err(|e| format!("Failed to parse RSA public key: {:?}", e))?;
+                Ok(Self::RsaPkcs1v15 { algorithm })
+            }
         }
     }
 
@@ -377,6 +397,7 @@ impl OpenSslKeyVerification {
         match self {
             Self::Ecdsa { algorithm } => SignatureKeyAlgorithm::Ec(*algorithm),
             Self::RsaPss { algorithm } => SignatureKeyAlgorithm::RsaPss(*algorithm),
+            Self::RsaPkcs1v15 { algorithm } => SignatureKeyAlgorithm::RsaPkcs1v15(*algorithm),
         }
     }
 
@@ -404,6 +425,8 @@ impl OpenSslKeyVerification {
             verifier.set_rsa_padding(Padding::PKCS1_PSS)?;
             verifier.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH)?;
             verifier.set_rsa_mgf1_md(digest)?;
+        } else if matches!(signature_algorithm, SignatureKeyAlgorithm::RsaPkcs1v15(_)) {
+            verifier.set_rsa_padding(Padding::PKCS1)?;
         }
 
         Ok(verifier)
@@ -413,6 +436,7 @@ impl OpenSslKeyVerification {
         match self {
             Self::Ecdsa { algorithm: _ } => "ECDSA signature verification failed",
             Self::RsaPss { algorithm: _ } => "RSA-PSS signature verification failed",
+            Self::RsaPkcs1v15 { algorithm: _ } => "RSA PKCS#1 v1.5 signature verification failed",
         }
     }
 }
@@ -422,6 +446,7 @@ impl Signature {
         match self {
             Self::Ecdsa { algorithm, .. } => SignatureKeyAlgorithm::Ec(*algorithm),
             Self::RsaPss { algorithm, .. } => SignatureKeyAlgorithm::RsaPss(*algorithm),
+            Self::RsaPkcs1v15 { algorithm, .. } => SignatureKeyAlgorithm::RsaPkcs1v15(*algorithm),
         }
     }
 
@@ -429,6 +454,7 @@ impl Signature {
         match self {
             Self::Ecdsa { der, .. } => der,
             Self::RsaPss { raw, .. } => raw,
+            Self::RsaPkcs1v15 { raw, .. } => raw,
         }
     }
 }

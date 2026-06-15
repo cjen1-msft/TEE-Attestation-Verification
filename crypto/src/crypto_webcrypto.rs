@@ -18,8 +18,8 @@ use super::x509_certificate::{self, Certificate as X509Certificate};
 use super::x509_policy;
 use super::{
     compatible_key_and_signature, AsyncCryptoBackend, AsyncKeyBackend, CertificateBackend,
-    DigestAlgorithm, EcSignatureKeyAlgorithm, Result, RsaPssSignatureKeyAlgorithm,
-    SignatureBackend, SignatureKeyAlgorithm,
+    DigestAlgorithm, EcSignatureKeyAlgorithm, Result, RsaPkcs1v15SignatureKeyAlgorithm,
+    RsaPssSignatureKeyAlgorithm, SignatureBackend, SignatureKeyAlgorithm,
 };
 
 pub struct Crypto;
@@ -44,6 +44,10 @@ pub enum Signature {
         algorithm: RsaPssSignatureKeyAlgorithm,
         raw: Vec<u8>,
     },
+    RsaPkcs1v15 {
+        algorithm: RsaPkcs1v15SignatureKeyAlgorithm,
+        raw: Vec<u8>,
+    },
 }
 
 impl SignatureBackend for Signature {
@@ -54,6 +58,10 @@ impl SignatureBackend for Signature {
                 fixed: ecdsa_der_to_fixed(signature, algorithm)?,
             }),
             SignatureKeyAlgorithm::RsaPss(algorithm) => Ok(Signature::RsaPss {
+                algorithm,
+                raw: signature.to_vec(),
+            }),
+            SignatureKeyAlgorithm::RsaPkcs1v15(algorithm) => Ok(Signature::RsaPkcs1v15 {
                 algorithm,
                 raw: signature.to_vec(),
             }),
@@ -185,6 +193,15 @@ impl Key {
 impl AsyncCryptoBackend for Crypto {
     type Key = Key;
     type Signature = Signature;
+
+    async fn digest(algorithm: DigestAlgorithm, bytes: &[u8]) -> Result<Vec<u8>> {
+        let subtle = subtle_crypto()?;
+        let promise = subtle
+            .digest_with_str_and_u8_array(digest_algorithm_name(algorithm), bytes)
+            .map_err(js_error)?;
+        let digest = JsFuture::from(promise).await.map_err(js_error)?;
+        Ok(Uint8Array::new(&digest).to_vec())
+    }
 
     async fn verify_signature(
         key: &Self::Key,
@@ -322,6 +339,7 @@ fn import_params(algorithm: SignatureKeyAlgorithm) -> Result<Object> {
     match algorithm {
         SignatureKeyAlgorithm::Ec(algorithm) => ecdsa_import_params(algorithm),
         SignatureKeyAlgorithm::RsaPss(algorithm) => rsa_pss_import_params(algorithm.digest()),
+        SignatureKeyAlgorithm::RsaPkcs1v15(algorithm) => rsa_pkcs1v15_params(algorithm.digest()),
     }
 }
 
@@ -329,6 +347,7 @@ fn verify_params(algorithm: SignatureKeyAlgorithm) -> Result<Object> {
     match algorithm {
         SignatureKeyAlgorithm::Ec(algorithm) => ecdsa_verify_params(algorithm.digest()),
         SignatureKeyAlgorithm::RsaPss(algorithm) => rsa_pss_verify_params(algorithm.salt_len()),
+        SignatureKeyAlgorithm::RsaPkcs1v15(algorithm) => rsa_pkcs1v15_params(algorithm.digest()),
     }
 }
 
@@ -452,6 +471,10 @@ fn webcrypto_signature_bytes(
         {
             Ok(raw.clone())
         }
+        (
+            SignatureKeyAlgorithm::RsaPkcs1v15(key_algorithm),
+            Signature::RsaPkcs1v15 { algorithm, raw },
+        ) if key_algorithm == *algorithm => Ok(raw.clone()),
         _ => Err(format!(
             "WebCrypto signature algorithm {:?} does not match key algorithm {algorithm:?}",
             signature.algorithm()
@@ -465,6 +488,7 @@ impl Signature {
         match self {
             Self::Ecdsa { algorithm, .. } => SignatureKeyAlgorithm::Ec(*algorithm),
             Self::RsaPss { algorithm, .. } => SignatureKeyAlgorithm::RsaPss(*algorithm),
+            Self::RsaPkcs1v15 { algorithm, .. } => SignatureKeyAlgorithm::RsaPkcs1v15(*algorithm),
         }
     }
 }
@@ -485,6 +509,13 @@ fn rsa_pss_verify_params(salt_len: usize) -> Result<Object> {
         &JsValue::from_f64(salt_len as f64),
     )
     .map_err(js_error)?;
+    Ok(params)
+}
+
+fn rsa_pkcs1v15_params(digest: DigestAlgorithm) -> Result<Object> {
+    let params = Object::new();
+    set_string(&params, "name", "RSASSA-PKCS1-v1_5")?;
+    set_string(&params, "hash", digest_algorithm_name(digest))?;
     Ok(params)
 }
 
@@ -543,6 +574,13 @@ extern "C" {
         algorithm: &Object,
         key: &CryptoKey,
         signature: &[u8],
+        data: &[u8],
+    ) -> std::result::Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, structural, catch, js_name = digest)]
+    fn digest_with_str_and_u8_array(
+        this: &SubtleCrypto,
+        algorithm: &str,
         data: &[u8],
     ) -> std::result::Result<Promise, JsValue>;
 }

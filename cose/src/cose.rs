@@ -70,6 +70,10 @@ pub fn cose_alg_for_signature_key_algorithm(
         SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps256) => Ok(-37),
         SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384) => Ok(-38),
         SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps512) => Ok(-39),
+        _ => Err(format!(
+            "Unsupported signature key algorithm {:?} for COSE",
+            algorithm
+        )),
     }
 }
 
@@ -199,6 +203,7 @@ fn signature_from_cose_bytes(
             <crypto::Signature as SignatureBackend>::from_bytes(sig, algorithm)
                 .map_err(|e| e.to_string())
         }
+        _ => Err(format!("Unsupported signature type {:?}", algorithm).into()),
     }
 }
 

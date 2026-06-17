@@ -83,12 +83,14 @@ jobs:
         run: |
           rustup update stable
           rustup default stable
+          rustup update nightly
+          rustup +nightly component add rust-src
 
       - name: Setup WASM tooling
         shell: bash
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo install wasm-bindgen-cli --version 0.2.95 --locked
+          cargo install wasm-bindgen-cli --version 0.2.122 --locked
           cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Build with openssl
@@ -118,7 +120,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20"
+          node-version: "26"
 
       - name: Build WASM for the web-verify-kernel demo
         working-directory: attestation
@@ -132,6 +134,33 @@ jobs:
 
       - name: Run web-verify-kernel demo e2e test
         working-directory: demos/web-verify-kernel/tests
+        run: npm test
+
+      # ACI depends on EverParse CBOR code that requires 64-bit usize.
+      # wasm64-unknown-unknown does not have a prebuilt rust-std
+      # component, so use nightly Cargo build-std with rust-src instead of
+      # rustup target add. wasm-bindgen only generates JS bindings from the
+      # already-built wasm artifact.
+      - name: Build WASM64 for the caci-attestation-verify demo
+        run: |
+          cargo +nightly build -Z build-std=std,panic_abort \
+            --manifest-path caci/Cargo.toml \
+            --target wasm64-unknown-unknown \
+            --no-default-features \
+            --features "crypto_webcrypto" \
+            --release
+          wasm-bindgen --target web \
+            --out-dir demos/caci-attestation-verify/caci_pkg \
+            target/wasm64-unknown-unknown/release/tee_attestation_verification_caci.wasm
+
+      - name: Install caci-attestation-verify demo test deps
+        working-directory: demos/caci-attestation-verify/tests
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run caci-attestation-verify demo e2e test
+        working-directory: demos/caci-attestation-verify/tests
         run: npm test
 
   package_wasm:

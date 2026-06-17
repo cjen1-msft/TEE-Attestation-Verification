@@ -22,7 +22,7 @@
 //! ```no_run
 //! use tee_attestation_verification_lib::certificate_from_pem;
 //! use tee_attestation_verification_lib::snp::report::{AttestationReport, TryFromBytes};
-//! use tee_attestation_verification_lib::snp::verify::{self, ChainVerification};
+//! use tee_attestation_verification_lib::snp::verify::{asynchronous as tav, ChainVerification};
 //!
 //! # async fn example<'a>(
 //! #     attestation_bytes: &'a [u8],
@@ -33,7 +33,7 @@
 //! let vcek = certificate_from_pem(vcek_pem)?;
 //! let ask = certificate_from_pem(ask_pem)?;
 //!
-//! verify::asynchronous::verify_attestation(
+//! tav::verify_attestation(
 //!     &report,
 //!     &vcek,
 //!     &ChainVerification::WithPinnedArk { ask: &ask },
@@ -270,8 +270,8 @@ pub(crate) fn verify_tcb_values(
             return Err(format!(
                 "Mismatched value OID {} : {} != {}",
                 oid,
-                crate::utils::to_hex(&ext_value),
-                crate::utils::to_hex(&expected)
+                crypto::hex::to_hex(&ext_value),
+                crypto::hex::to_hex(&expected)
             )
             .into());
         }

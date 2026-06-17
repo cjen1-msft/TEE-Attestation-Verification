@@ -13,12 +13,14 @@ and returning authenticated report claims to callers.
 |---|---|---|
 | `crypto/` | `tee-attestation-verification-crypto` | Backend abstraction for certificate handling, certificate-chain verification, and signature verification. |
 | `cose/` | `tee-attestation-verification-cose` | COSE signing and verification helpers. |
+| `caci/` | `tee-attestation-verification-caci` | CACI UVM endorsement verification against SEV-SNP attestations and DID x509 roots of trust. |
 | `attestation/` | `tee-attestation-verification-lib` | Public attestation verification APIs, SEV-SNP report types, KDS support, C ABI, and WASM bindings. |
 | `demos/web-verify-kernel/` | n/a | Browser demo that exercises the WASM attestation bindings. |
 
 Read the crate-specific docs for API details:
 
 - [`attestation/README.md`](attestation/README.md)
+- [`caci/README.md`](caci/README.md)
 - [`crypto/README.md`](crypto/README.md)
 - [`demos/web-verify-kernel/README.md`](demos/web-verify-kernel/README.md)
 
@@ -43,7 +45,7 @@ tee-attestation-verification-lib = { git = "https://github.com/microsoft/TEE-Att
 ```
 
 ```rust
-use tee_attestation_verification_lib::snp::verify::{sync, ChainVerification};
+use tee_attestation_verification_lib::snp::verify::{sync as tav, ChainVerification};
 use tee_attestation_verification_lib::{certificate_from_pem, AttestationReport};
 use zerocopy::FromBytes;
 
@@ -51,7 +53,7 @@ let report = AttestationReport::read_from_bytes(attestation_report_bytes)?;
 let vcek = certificate_from_pem(vcek_pem)?;
 let ask = certificate_from_pem(ask_pem)?;
 
-sync::verify_attestation(&report, &vcek, &ChainVerification::WithPinnedArk { ask: &ask })?;
+tav::verify_attestation(&report, &vcek, &ChainVerification::WithPinnedArk { ask: &ask })?;
 ```
 
 ## Trademarks

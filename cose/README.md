@@ -34,7 +34,7 @@ encoded as CBOR tag 18 over an array:
 ```
 
 After parsing the envelope, pass the protected-header bytes, payload bytes, and
-signature bytes to `cose_verify1` or `cose_verify1_async`.
+signature bytes to `synchronous::cose_verify1` or `asynchronous::cose_verify1`.
 
 The verifier accepts:
 
@@ -52,7 +52,8 @@ context.
 
 ```rust
 use tee_attestation_verification_cose::{
-    cose_verify1, CborValue, Key, KeyBackend, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm,
+    synchronous as tav, CborValue, Key, KeyBackend, RsaPssSignatureKeyAlgorithm,
+    SignatureKeyAlgorithm,
 };
 
 let envelope = CborValue::from_bytes(cose_sign1)?;
@@ -77,7 +78,7 @@ let signature = match sign1.array_at(3)? {
 let algorithm = SignatureKeyAlgorithm::RsaPss(RsaPssSignatureKeyAlgorithm::Ps384);
 let key = <Key as KeyBackend>::from_spki_der(subject_public_key_info_der, algorithm)?;
 
-cose_verify1(
+tav::cose_verify1(
     &key,
     algorithm,
     protected_header,
@@ -86,15 +87,20 @@ cose_verify1(
 )?;
 ```
 
-For WebCrypto or other async backends, use `cose_verify1_async`.
+For WebCrypto or other async backends, use `asynchronous::cose_verify1`.
 
 ## WASM64
 
 The COSE crate depends on EverParse CBOR Rust code (`cborrs`). That generated
 code currently requires a 64-bit `usize`, so COSE WASM builds use
-`wasm64-unknown-unknown` with Cargo nightly `build-std`:
+`wasm64-unknown-unknown` with Cargo nightly `build-std`. The target does not
+have a prebuilt `rust-std` component, so install `rust-src` and do not run
+`rustup target add wasm64-unknown-unknown`:
 
 ```bash
+rustup toolchain install nightly
+rustup +nightly component add rust-src
+
 cargo +nightly build -Z build-std=std,panic_abort \
   --manifest-path cose/Cargo.toml \
   --target wasm64-unknown-unknown \

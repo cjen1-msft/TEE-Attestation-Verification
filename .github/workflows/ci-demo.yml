@@ -67,70 +67,8 @@ jobs:
         run: |
           rustup update stable && rustup default stable
 
-      - name: Build C FFI demo
-        run: |
-          cmake -S demos/c-ffi -B demos/c-ffi/build -G Ninja
-          cmake --build demos/c-ffi/build
-
-      - name: Check C FFI exports
-        run: |
-          nm -D --defined-only target/debug/libtee_attestation_verification_lib.so \
-            | grep ' tav_snp_verify_attestation'
-          nm -D --defined-only target/debug/libtee_attestation_verification_lib.so \
-            | grep ' tav_error_code'
-
-      - name: Run C FFI demo
-        run: |
-          ./demos/c-ffi/build/tav-c-ffi-demo \
-            attestation/tests/test_data/milan_attestation_report.bin \
-            attestation/src/pinned_arks/milan_ark.pem \
-            attestation/tests/test_data/milan_ask.pem \
-            attestation/tests/test_data/milan_vcek.pem \
-            > c-ffi-demo-output.txt
-          diff -u demos/c-ffi/test-data/milan-output.golden.txt c-ffi-demo-output.txt
-
-      - name: Run C FFI demo failure path
-        run: |
-          : > c-ffi-empty-report.bin
-          set +e
-          ./demos/c-ffi/build/tav-c-ffi-demo \
-            c-ffi-empty-report.bin \
-            attestation/src/pinned_arks/milan_ark.pem \
-            attestation/tests/test_data/milan_ask.pem \
-            attestation/tests/test_data/milan_vcek.pem \
-            > c-ffi-demo-failure-output.txt \
-            2> c-ffi-demo-failure-error.txt
-          code=$?
-          set -e
-          test "$code" -eq 1
-          test ! -s c-ffi-demo-failure-output.txt
-          diff -u demos/c-ffi/test-data/empty-report-error.golden.txt c-ffi-demo-failure-error.txt
-
-      - name: Build and run statically linked C FFI demo
-        run: |
-          cmake -S demos/c-ffi -B demos/c-ffi/build-static -G Ninja -DTAV_LINK_STATIC=ON
-          cmake --build demos/c-ffi/build-static
-          ./demos/c-ffi/build-static/tav-c-ffi-demo \
-            attestation/tests/test_data/milan_attestation_report.bin \
-            attestation/src/pinned_arks/milan_ark.pem \
-            attestation/tests/test_data/milan_ask.pem \
-            attestation/tests/test_data/milan_vcek.pem \
-            > c-ffi-demo-static-output.txt
-          diff -u demos/c-ffi/test-data/milan-output.golden.txt c-ffi-demo-static-output.txt
-          : > c-ffi-empty-report.bin
-          set +e
-          ./demos/c-ffi/build-static/tav-c-ffi-demo \
-            c-ffi-empty-report.bin \
-            attestation/src/pinned_arks/milan_ark.pem \
-            attestation/tests/test_data/milan_ask.pem \
-            attestation/tests/test_data/milan_vcek.pem \
-            > c-ffi-demo-static-failure-output.txt \
-            2> c-ffi-demo-static-failure-error.txt
-          code=$?
-          set -e
-          test "$code" -eq 1
-          test ! -s c-ffi-demo-static-failure-output.txt
-          diff -u demos/c-ffi/test-data/empty-report-error.golden.txt c-ffi-demo-static-failure-error.txt
+      - name: Run C FFI demo tests
+        run: python3 demos/c-ffi/run_tests.py
 
   cose-c-ffi:
     name: COSE C FFI demo
@@ -146,13 +84,6 @@ jobs:
         run: |
           cmake -S demos/cose-c-ffi -B demos/cose-c-ffi/build -G Ninja
           cmake --build demos/cose-c-ffi/build
-
-      - name: Check COSE C FFI exports
-        run: |
-          nm -D --defined-only target/debug/libtee_attestation_verification_cose.so \
-            | grep ' tav_cbor_value_from_bytes'
-          nm -D --defined-only target/debug/libtee_attestation_verification_cose.so \
-            | grep ' tav_cose_error_code'
 
       - name: Run COSE C FFI demo
         run: |
@@ -171,6 +102,19 @@ jobs:
             "$uvm_hex" \
             > cose-c-ffi-demo-static-output.txt
           diff -u demos/cose-c-ffi/test-data/sample-output.golden.txt cose-c-ffi-demo-static-output.txt
+
+  caci-c-ffi:
+    name: CACI C FFI demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+
+      - name: Run CACI C FFI demo tests
+        run: python3 demos/caci-c-ffi/run_tests.py
 
   caci-attestation-verify:
     name: E2E test of CACI attestation verification

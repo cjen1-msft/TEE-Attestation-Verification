@@ -279,7 +279,7 @@ pub mod c {
     }
 
     impl TAVSnpAttestationReport {
-        fn report(&self) -> &AttestationReport {
+        pub fn report(&self) -> &AttestationReport {
             AttestationReport::ref_from_bytes(&self.bytes).expect(
                 "TAVSnpAttestationReport is only constructed from verified bytes so parsing should not fail",
             )

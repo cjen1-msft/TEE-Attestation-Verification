@@ -23,8 +23,9 @@ extern "C" {
  *   ancestor owned TavCborValue remains alive.
  * - Byte/text accessors return borrowed views. The returned data remains valid
  *   only while the owning or ancestor TavCborValue remains alive.
- * - tav_cbor_value_to_bytes writes owned bytes to a TavByteBuffer. Release it
- *   with tav_byte_buffer_free.
+ * - tav_cbor_value_to_bytes writes an owned TavByteBuffer* through out_bytes.
+ *   Read it with tav_byte_buffer_data/tav_byte_buffer_len and release it with
+ *   tav_byte_buffer_free.
  * - Freeing NULL owned handles is a no-op.
  * - Owned out-parameters are write-only: pass a non-NULL pointer to a handle
  *   slot. The slot is set to NULL before any fallible work and set to an owned
@@ -87,7 +88,7 @@ TAV_COSE_API TavError *tav_cbor_value_from_bytes(
 
 TAV_COSE_API TavError *tav_cbor_value_to_bytes(
     const TavCborValue *value,
-    TavByteBuffer *out_bytes);
+    TavByteBuffer **out_bytes);
 
 /* value must be a valid, non-NULL TavCborValue handle. */
 TAV_COSE_API TavCborKind tav_cbor_value_kind(const TavCborValue *value);

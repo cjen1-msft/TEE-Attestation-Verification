@@ -103,7 +103,7 @@ async function assertRejectsVerifyError(promise, code, messageSubstring) {
   });
 }
 
-// 1. Attestation accessors: every getter exported on SnpAttestationReport.
+// Attestation accessors: every getter exported on SnpAttestationReport.
 test('attestation accessors expose every SnpAttestationReport getter', async () => {
   const attestation = await verifiedMilanReport();
   assert.ok(attestation instanceof pkg.SnpAttestationReport);
@@ -187,7 +187,7 @@ test('attestation accessors expose every SnpAttestationReport getter', async () 
   );
 });
 
-// 2. CBOR accessors: CborValue decoding plus the CoseSign1 wrapper.
+// CBOR accessors: CborValue decoding plus the CoseSign1 wrapper.
 test('cbor accessors decode scalars, containers, tags, and COSE_Sign1', () => {
   const intValue = pkg.CborValue.from_bytes(Uint8Array.of(0x01));
   assert.equal(intValue.kind(), 'int');
@@ -263,7 +263,7 @@ test('cbor accessors decode scalars, containers, tags, and COSE_Sign1', () => {
   assertStringError(() => malformedSign1.payload(), /payload must be a byte string/);
 });
 
-// 3. SNP verify attestation: verify_attestation_async (typed VerifyError).
+// SNP verify attestation: verify_attestation_async (typed VerifyError).
 test('snp verify attestation returns a report and rejects an invalid root', async () => {
   const { report, ark, ask, vcek } = loadMilanInputs();
 
@@ -277,9 +277,44 @@ test('snp verify attestation returns a report and rejects an invalid root', asyn
     pkg.ErrorCode.InvalidRootCertificate,
     /Invalid root certificate/,
   );
+
+  // Malformed inputs are rejected as InvalidArgument before verification runs.
+  await assertRejectsVerifyError(
+    pkg.verify_attestation_async(new Uint8Array(), ark, ask, vcek),
+    pkg.ErrorCode.InvalidArgument,
+    /expected 1184 bytes, got 0/,
+  );
+  await assertRejectsVerifyError(
+    pkg.verify_attestation_async(report.slice(0, 100), ark, ask, vcek),
+    pkg.ErrorCode.InvalidArgument,
+    /Invalid attestation report/,
+  );
+  await assertRejectsVerifyError(
+    pkg.verify_attestation_async(report, 'not a pem', ask, vcek),
+    pkg.ErrorCode.InvalidArgument,
+    /ARK PEM/,
+  );
+  await assertRejectsVerifyError(
+    pkg.verify_attestation_async(report, ark, 'not a pem', vcek),
+    pkg.ErrorCode.InvalidArgument,
+    /ASK PEM/,
+  );
+  await assertRejectsVerifyError(
+    pkg.verify_attestation_async(report, ark, ask, 'not a pem'),
+    pkg.ErrorCode.InvalidArgument,
+    /VCEK PEM/,
+  );
+
+  // A tampered report body fails AMD signature verification.
+  const corrupted = Uint8Array.from(report);
+  corrupted[100] ^= 0xff;
+  await assertRejectsVerifyError(
+    pkg.verify_attestation_async(corrupted, ark, ask, vcek),
+    pkg.ErrorCode.SignatureVerificationError,
+  );
 });
 
-// 3.1. SNP verify with cert chain: verify_snp_attestation_with_cert_chain_async,
+// SNP verify with cert chain: verify_snp_attestation_with_cert_chain_async,
 // including the split_certificate_bundle / split_pem_bundle helpers used to
 // assemble the endorsement chain.
 test('snp verify with cert chain accepts endorsements and rejects a bad chain', async () => {
@@ -291,6 +326,8 @@ test('snp verify with cert chain accepts endorsements and rejects a bad chain', 
   assert.match(splitSnp[1], /BEGIN CERTIFICATE/);
   // Failure mode: splitting an empty bundle raises the shipped string error.
   assertStringError(() => pkg.split_certificate_bundle(''), /empty/);
+  // A non-PEM bundle raises the parse string error rather than a VerifyError.
+  assertStringError(() => pkg.split_certificate_bundle('not a pem'), /certificate bundle PEM/);
   // split_pem_bundle is a separate exported symbol with its own string error.
   assertStringError(() => pkg.split_pem_bundle(''), /empty/);
 
@@ -305,7 +342,7 @@ test('snp verify with cert chain accepts endorsements and rejects a bad chain', 
   );
 });
 
-// 4. verify_uvm_endorsement: verify_uvm_endorsement_async.
+// verify_uvm_endorsement: verify_uvm_endorsement_async.
 test('verify_uvm_endorsement returns a CBOR payload and rejects an untrusted root', async () => {
   const { uvmEndorsement } = loadCaciInputs();
 
@@ -325,7 +362,7 @@ test('verify_uvm_endorsement returns a CBOR payload and rejects an untrusted roo
   );
 });
 
-// 5. verify_caci_attestation: the full relying-party policy check.
+// verify_caci_attestation: the full relying-party policy check.
 test('verify_caci_attestation returns report data and rejects an empty policy set', async () => {
   const { manifest, report, endorsements, uvmEndorsement, policies } = loadCaciInputs();
 

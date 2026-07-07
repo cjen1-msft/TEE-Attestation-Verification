@@ -45,17 +45,23 @@ const char *tav_error_message(const TavError *error);
 void tav_error_free(TavError *error);
 
 /*
- * Owned byte buffer returned by public C ABI functions.
+ * Opaque owned byte buffer returned by public C ABI functions.
  *
- * data points to a library-owned allocation of len bytes. Release it with
- * tav_byte_buffer_free, which frees the allocation and resets the buffer to
- * { data = NULL, len = 0 }. Freeing a NULL buffer or an empty buffer is a no-op.
+ * Producing functions write an owned TavByteBuffer* through an out-parameter.
+ * Read its contents with tav_byte_buffer_data and tav_byte_buffer_len, then
+ * release it with tav_byte_buffer_free. The type is intentionally opaque so a
+ * caller cannot construct one over foreign memory: every buffer passed to
+ * tav_byte_buffer_free is one this library allocated.
+ *
+ * tav_byte_buffer_data returns a pointer valid until the buffer is freed; it is
+ * non-NULL even for a zero-length buffer, so always pair it with
+ * tav_byte_buffer_len. Passing NULL to an accessor or to tav_byte_buffer_free is
+ * a no-op (data returns NULL, len returns 0).
  */
-typedef struct TavByteBuffer {
-    uint8_t *data;
-    size_t len;
-} TavByteBuffer;
+typedef struct TavByteBuffer TavByteBuffer;
 
+const uint8_t *tav_byte_buffer_data(const TavByteBuffer *bytes);
+size_t tav_byte_buffer_len(const TavByteBuffer *bytes);
 void tav_byte_buffer_free(TavByteBuffer *bytes);
 
 #ifdef __cplusplus

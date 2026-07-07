@@ -507,7 +507,7 @@ int main(int argc, char **argv) {
     int exit_code = 0;
     TavSnpAttestationReport *attestation = NULL;
     TavCborValue *uvm_endorsement = NULL;
-    TavByteBuffer report_data = {0};
+    TavByteBuffer *report_data = NULL;
 
     exit_code = consume_snp_error(
         tav_verify_snp_attestation(
@@ -557,7 +557,7 @@ int main(int argc, char **argv) {
 
     printf("Confidential CACI attestation verified.\n");
     printf("verified_report_data\n");
-    print_hex_lines(report_data.data, report_data.len, 2);
+    print_hex_lines(tav_byte_buffer_data(report_data), tav_byte_buffer_len(report_data), 2);
     printf("verified_snp_attestation\n");
     print_borrowed_report_field("host_data", tav_snp_attestation_report_host_data, attestation);
     print_borrowed_report_field("report_data", tav_snp_attestation_report_report_data, attestation);
@@ -574,7 +574,7 @@ int main(int argc, char **argv) {
     printf("  %" PRIu64 "\n", minimum_svn);
 
 cleanup:
-    tav_byte_buffer_free(&report_data);
+    tav_byte_buffer_free(report_data);
     tav_cbor_value_free(uvm_endorsement);
     tav_snp_attestation_report_free(attestation);
     free_string(&ark);

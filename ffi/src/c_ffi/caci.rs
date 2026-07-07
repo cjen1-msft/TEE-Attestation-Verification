@@ -6,7 +6,7 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 
 use super::utils::{
-    byte_buffer_out_ptr, input_bytes, input_text, owned_out_ptr, tav_error_free, tav_error_message,
+    input_bytes, input_text, owned_out_ptr, tav_error_free, tav_error_message,
     TavByteBuffer, MAX_INPUT_LEN,
 };
 use crate::c_ffi::cose::{tav_cbor_value_from_bytes, TavCborValue};
@@ -144,11 +144,11 @@ unsafe fn parse_trusted_policy_digests(
 
 fn write_owned_bytes(
     bytes: impl Into<Vec<u8>>,
-    out_bytes: *mut TavByteBuffer,
+    out_bytes: *mut *mut TavByteBuffer,
 ) -> Result<(), TavError> {
-    unsafe { byte_buffer_out_ptr(out_bytes, "out_report_data") }?;
+    unsafe { owned_out_ptr(out_bytes, "out_report_data") }?;
     unsafe {
-        *out_bytes = TavByteBuffer::from_bytes(bytes);
+        *out_bytes = Box::into_raw(TavByteBuffer::from_bytes(bytes));
     }
     Ok(())
 }
@@ -207,10 +207,10 @@ pub unsafe extern "C" fn tav_verify_caci_attestation(
     uvm_feed: *const c_char,
     uvm_feed_len: usize,
     minimum_svn: u64,
-    out_report_data: *mut TavByteBuffer,
+    out_report_data: *mut *mut TavByteBuffer,
 ) -> *mut TavError {
     into_result((|| {
-        unsafe { byte_buffer_out_ptr(out_report_data, "out_report_data") }?;
+        unsafe { owned_out_ptr(out_report_data, "out_report_data") }?;
         let attestation = unsafe { attestation_report(attestation) }?;
         let minimum_tcb = unsafe {
             minimum_tcb_entries(minimum_tcb_cpuids, minimum_tcb_values, minimum_tcb_count)

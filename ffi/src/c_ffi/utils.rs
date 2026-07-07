@@ -37,51 +37,70 @@ pub unsafe extern "C" fn tav_error_free(error: *mut TavError) {
     }
 }
 
-/// Owned byte buffer returned by public C ABI functions.
+/// Opaque owned byte buffer returned by public C ABI functions.
 ///
-/// `data` points to a library-owned allocation of `len` bytes. Release it with
-/// [`tav_byte_buffer_free`], which frees the allocation and resets the buffer to
-/// `{ data: NULL, len: 0 }`.
-#[repr(C)]
-#[derive(Debug)]
+/// Callers only ever hold a `*mut TavByteBuffer` produced by a library
+/// function; they read it through [`tav_byte_buffer_data`]/[`tav_byte_buffer_len`]
+/// and release it with [`tav_byte_buffer_free`]. Keeping the type opaque means a
+/// caller cannot construct one over foreign memory, so every buffer passed to
+/// [`tav_byte_buffer_free`] is guaranteed to have been allocated by this library.
 pub struct TavByteBuffer {
-    pub data: *mut u8,
-    pub len: usize,
+    bytes: Box<[u8]>,
 }
 
 impl TavByteBuffer {
-    /// An empty buffer with a null data pointer.
-    pub const fn empty() -> Self {
-        Self {
-            data: std::ptr::null_mut(),
-            len: 0,
-        }
-    }
-
-    /// Take ownership of `bytes` and expose it as a C byte buffer.
-    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
-        let bytes = bytes.into().into_boxed_slice();
-        let len = bytes.len();
-        let data = Box::into_raw(bytes).cast::<u8>();
-        Self { data, len }
+    /// Take ownership of `bytes` and box it as an owned C byte buffer.
+    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Box<Self> {
+        Box::new(Self {
+            bytes: bytes.into().into_boxed_slice(),
+        })
     }
 }
 
+/// Borrow the bytes owned by `buffer`.
+///
+/// The returned pointer is valid until `buffer` is freed and is non-null even
+/// for a zero-length buffer, so always pair it with [`tav_byte_buffer_len`].
+/// Returns null when `buffer` is null.
+///
+/// # Safety
+/// `buffer` must be null or a live buffer returned by this library.
 #[cfg(not(target_family = "wasm"))]
 #[no_mangle]
-pub unsafe extern "C" fn tav_byte_buffer_free(bytes: *mut TavByteBuffer) {
-    if bytes.is_null() {
-        return;
+pub unsafe extern "C" fn tav_byte_buffer_data(buffer: *const TavByteBuffer) -> *const u8 {
+    if buffer.is_null() {
+        return std::ptr::null();
     }
+    let buffer = unsafe { &*buffer };
+    buffer.bytes.as_ptr()
+}
 
-    let bytes = unsafe { &mut *bytes };
-    if !bytes.data.is_null() {
-        let data = std::ptr::slice_from_raw_parts_mut(bytes.data, bytes.len);
+/// Return the number of bytes owned by `buffer`, or 0 when `buffer` is null.
+///
+/// # Safety
+/// `buffer` must be null or a live buffer returned by this library.
+#[cfg(not(target_family = "wasm"))]
+#[no_mangle]
+pub unsafe extern "C" fn tav_byte_buffer_len(buffer: *const TavByteBuffer) -> usize {
+    if buffer.is_null() {
+        return 0;
+    }
+    let buffer = unsafe { &*buffer };
+    buffer.bytes.len()
+}
+
+/// Free a byte buffer produced by this library. Freeing null is a no-op.
+///
+/// # Safety
+/// `buffer` must be null or a buffer returned by this library that has not
+/// already been freed.
+#[cfg(not(target_family = "wasm"))]
+#[no_mangle]
+pub unsafe extern "C" fn tav_byte_buffer_free(buffer: *mut TavByteBuffer) {
+    if !buffer.is_null() {
         unsafe {
-            drop(Box::from_raw(data));
+            drop(Box::from_raw(buffer));
         }
-        bytes.data = std::ptr::null_mut();
-        bytes.len = 0;
     }
 }
 
@@ -161,19 +180,6 @@ pub unsafe fn owned_out_ptr<T>(out: *mut *mut T, name: &str) -> Result<(), TavEr
     unsafe { out_ptr(out, name) }?;
     unsafe {
         *out = std::ptr::null_mut();
-    }
-    Ok(())
-}
-
-/// Validate and reset a byte-buffer out-parameter to empty before fallible work.
-///
-/// # Safety
-/// `out` must be a valid pointer to a writable [`TavByteBuffer`], or null.
-#[cfg(not(target_family = "wasm"))]
-pub unsafe fn byte_buffer_out_ptr(out: *mut TavByteBuffer, name: &str) -> Result<(), TavError> {
-    unsafe { out_ptr(out, name) }?;
-    unsafe {
-        *out = TavByteBuffer::empty();
     }
     Ok(())
 }

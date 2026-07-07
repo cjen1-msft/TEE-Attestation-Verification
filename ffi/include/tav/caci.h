@@ -22,12 +22,13 @@ extern "C" {
  * - tav_verify_caci_uvm_endorsement returns an owned TavCborValue containing
  *   the verified UVM COSE/CBOR document. Inspect it with the CBOR accessors in
  *   tav/cose.h and release it with tav_cbor_value_free.
- * - tav_verify_caci_attestation writes owned bytes to a TavByteBuffer.
- *   Release them with tav_byte_buffer_free.
- * - Freeing NULL owned handles and empty byte buffers is a no-op.
+ * - tav_verify_caci_attestation writes an owned TavByteBuffer* through
+ *   out_report_data. Read it with tav_byte_buffer_data/tav_byte_buffer_len and
+ *   release it with tav_byte_buffer_free.
+ * - Freeing NULL owned handles and NULL byte buffers is a no-op.
  * - Owned handle out-parameters (TavCborValue **) and byte-buffer
- *   out-parameters (TavByteBuffer *) are write-only: they are reset to NULL or
- *   { NULL, 0 } before any fallible work and set to an owned value only on
+ *   out-parameters (TavByteBuffer **) are write-only: they are reset to NULL
+ *   before any fallible work and set to an owned value only on
  *   success.
  *
  * All public functions return NULL on success or an owned TavError on
@@ -64,7 +65,8 @@ TAV_CACI_API TavError *tav_verify_caci_uvm_endorsement(
  * one digest is required. uvm_feed is a UTF-8 byte slice and does not need to be
  * NUL-terminated.
  *
- * On success, out_report_data receives the 64-byte verified SNP REPORT_DATA.
+ * On success, out_report_data receives an owned TavByteBuffer holding the
+ * 64-byte verified SNP REPORT_DATA.
  */
 TAV_CACI_API TavError *tav_verify_caci_attestation(
     const TavSnpAttestationReport *attestation,
@@ -77,7 +79,7 @@ TAV_CACI_API TavError *tav_verify_caci_attestation(
     const char *uvm_feed,
     size_t uvm_feed_len,
     uint64_t minimum_svn,
-    TavByteBuffer *out_report_data);
+    TavByteBuffer **out_report_data);
 
 #ifdef __cplusplus
 }

@@ -12,9 +12,6 @@ license = "MIT"
 features = ["crypto_openssl", "crypto_webcrypto"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
-[lib]
-crate-type = ["cdylib", "staticlib", "rlib"]
-
 [features]
 default = ["crypto/default", "attestation/default", "cose/default"]
 crypto_openssl = [
@@ -44,8 +41,3 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-js-sys = "0.3"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"

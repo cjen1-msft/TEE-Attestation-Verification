@@ -93,7 +93,7 @@ TEST_CASE("cbor: failed accessors clear their out-parameters") {
     const uint8_t *data = reinterpret_cast<const uint8_t *>(0x1);
     size_t len = SIZE_MAX;
     TavError *error = tav_cbor_value_bytes(int_child, &data, &len);
-    CHECK(tav_error_code(error) == TAV_ERROR_UNEXPECTED_TYPE);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_UNEXPECTED_TYPE);
     CHECK(data == nullptr);
     CHECK(len == 0);
     tav_error_free(error);
@@ -109,7 +109,7 @@ TEST_CASE("cbor: failed accessors clear their out-parameters") {
     const TavCborValue *key = reinterpret_cast<const TavCborValue *>(0x1);
     const TavCborValue *value = reinterpret_cast<const TavCborValue *>(0x1);
     error = tav_cbor_value_map_entry_at(root.value, 99, &key, &value);
-    CHECK(tav_error_code(error) == TAV_ERROR_UNEXPECTED_TYPE);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_UNEXPECTED_TYPE);
     CHECK(key == nullptr);
     CHECK(value == nullptr);
     tav_error_free(error);
@@ -153,6 +153,20 @@ TEST_CASE("cbor: map lookup and presence checks") {
     REQUIRE(tav_cbor_value_from_bytes(key_cbor, sizeof(key_cbor), &owned_key.value) == nullptr);
     REQUIRE(tav_cbor_value_map_has_key(root.value, owned_key.value, &has_key) == nullptr);
     CHECK(has_key);
+
+    // map_key_at / map_value_at project a single side of an entry (entry 0 is 1: "one").
+    const TavCborValue *only_key = nullptr;
+    const TavCborValue *only_value = nullptr;
+    REQUIRE(tav_cbor_value_map_key_at(root.value, 0, &only_key) == nullptr);
+    REQUIRE(tav_cbor_value_map_value_at(root.value, 0, &only_value) == nullptr);
+    int64_t key_int = 0;
+    REQUIRE(tav_cbor_value_int(only_key, &key_int) == nullptr);
+    CHECK(key_int == 1);
+    REQUIRE(tav_cbor_value_text(only_value, &text, &text_len) == nullptr);
+    CHECK(std::string(text, text_len) == "one");
+    // An out-of-range index fails like map_entry_at.
+    CHECK(tav_cbor_value_map_key_at(root.value, 99, &only_key) != nullptr);
+    CHECK(tav_cbor_value_map_value_at(root.value, 99, &only_value) != nullptr);
 }
 
 TEST_CASE("cbor: a value round-trips through to_bytes into an owned buffer") {
@@ -193,7 +207,7 @@ TEST_CASE("cbor: len reports array and map element counts") {
     REQUIRE(tav_cbor_value_array_at(array_root.value, 0, &scalar) == nullptr);
     len = SIZE_MAX;
     TavError *error = tav_cbor_value_len(scalar, &len);
-    CHECK(tav_error_code(error) == TAV_ERROR_CBOR);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_CBOR);
     CHECK(len == 0);
     tav_error_free(error);
 }
@@ -223,14 +237,14 @@ TEST_CASE("cbor: typed map lookups by int and text key") {
     // Absent keys report an error and clear the borrowed handle.
     value = reinterpret_cast<const TavCborValue *>(0x1);
     TavError *error = tav_cbor_value_map_at_int(root.value, 2, &value);
-    CHECK(tav_error_code(error) == TAV_ERROR_CBOR);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_CBOR);
     CHECK(value == nullptr);
     tav_error_free(error);
 
     value = reinterpret_cast<const TavCborValue *>(0x1);
     const char kMissing[] = "nope";
     error = tav_cbor_value_map_at_text(root.value, kMissing, 4, &value);
-    CHECK(tav_error_code(error) == TAV_ERROR_CBOR);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_CBOR);
     CHECK(value == nullptr);
     tav_error_free(error);
 }
@@ -253,7 +267,7 @@ TEST_CASE("cbor: simple value extraction") {
     REQUIRE(tav_cbor_value_from_bytes(int_cbor, sizeof(int_cbor), &int_root.value) == nullptr);
     simple = 0xff;
     TavError *error = tav_cbor_value_simple(int_root.value, &simple);
-    CHECK(tav_error_code(error) == TAV_ERROR_UNEXPECTED_TYPE);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_UNEXPECTED_TYPE);
     CHECK(simple == 0);
     tav_error_free(error);
 }
@@ -280,13 +294,13 @@ TEST_CASE("cbor: tag number and tagged payload") {
     // The inner array is not tagged: both tag accessors fail and clear outs.
     uint64_t not_tag = 7;
     TavError *error = tav_cbor_value_tag(payload, &not_tag);
-    CHECK(tav_error_code(error) == TAV_ERROR_UNEXPECTED_TYPE);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_UNEXPECTED_TYPE);
     CHECK(not_tag == 0);
     tav_error_free(error);
 
     const TavCborValue *no_payload = reinterpret_cast<const TavCborValue *>(0x1);
     error = tav_cbor_value_tagged_payload(payload, &no_payload);
-    CHECK(tav_error_code(error) == TAV_ERROR_UNEXPECTED_TYPE);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_UNEXPECTED_TYPE);
     CHECK(no_payload == nullptr);
     tav_error_free(error);
 }
@@ -320,7 +334,7 @@ TEST_CASE("cose: embedded verification rejects a tampered signature") {
     TavError *error = tav_verify_cose_sign1_embedded(
         sign1, kSpki.data(), kSpki.size(), TAV_COSE_ALG_ES256);
     REQUIRE(error != nullptr);
-    CHECK(tav_error_code(error) == TAV_ERROR_VERIFICATION);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_VERIFICATION);
     tav_error_free(error);
 }
 
@@ -336,7 +350,7 @@ TEST_CASE("cose: detached verification rejects an embedded payload") {
         sign1, reinterpret_cast<const uint8_t *>(kPayload.data()), kPayload.size(),
         kSpki.data(), kSpki.size(), TAV_COSE_ALG_ES256);
     REQUIRE(error != nullptr);
-    CHECK(tav_error_code(error) == TAV_ERROR_UNEXPECTED_TYPE);
+    CHECK(tav_error_code(error) == TAV_ERROR_COSE_UNEXPECTED_TYPE);
     CHECK(std::string(tav_error_message(error)).find("requires nil COSE payload") !=
           std::string::npos);
     tav_error_free(error);

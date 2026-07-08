@@ -35,6 +35,10 @@ pub fn split_pem_bundle(pem_bundle: &str) -> Result<Array, String> {
 ///
 /// `amd_endorsements` must contain exactly three byte arrays ordered as
 /// `[vcek, ask, ark]`.
+///
+/// Caller contract: `amd_endorsements` is a live JS array, read once when the
+/// returned promise is first polled (see the `wasm_ffi` module docs). Do not mutate the
+/// array or its buffers until that promise settles.
 #[wasm_bindgen]
 #[cfg(async_crypto)]
 pub async fn verify_snp_attestation_with_cert_chain_async(
@@ -79,6 +83,11 @@ pub async fn verify_uvm_endorsement_async(
 /// `minimum_tcb_json`, when non-empty, must be a JSON map from CPUID hex
 /// strings to TCB hex strings, for example `{ "00a10f11": "04000000000018db" }`.
 /// In the future this can be checked against a transparent statement from CACI.
+///
+/// Caller contract: `attestation` and `uvm` are borrowed wasm handles and
+/// `trusted_caci_execution_policies` is a live JS array, all read once when the
+/// returned promise is first polled (see the `wasm_ffi` module docs). Do not free those
+/// handles or mutate the array until that promise settles.
 #[wasm_bindgen]
 pub async fn verify_caci_attestation(
     attestation: &SnpAttestationReport,

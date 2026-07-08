@@ -511,6 +511,40 @@ pub unsafe extern "C" fn tav_cbor_value_map_entry_at(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tav_cbor_value_map_key_at(
+    value: *const TavCborValue,
+    index: usize,
+    out_key: *mut *const TavCborValue,
+) -> *mut TavError {
+    into_result((|| {
+        unsafe { borrowed_out_ptr(out_key, "out_key") }?;
+        let value = unsafe { cbor_value(value, "value") }?;
+        let (key, _) = map_entry_at(value, index)?;
+        unsafe {
+            *out_key = TavCborValue::borrowed(key);
+        }
+        Ok(())
+    })())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tav_cbor_value_map_value_at(
+    value: *const TavCborValue,
+    index: usize,
+    out_value: *mut *const TavCborValue,
+) -> *mut TavError {
+    into_result((|| {
+        unsafe { borrowed_out_ptr(out_value, "out_value") }?;
+        let value = unsafe { cbor_value(value, "value") }?;
+        let (_, child) = map_entry_at(value, index)?;
+        unsafe {
+            *out_value = TavCborValue::borrowed(child);
+        }
+        Ok(())
+    })())
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn tav_validate_cose_sign1(
     value: *const TavCborValue,
     out_sign1: *mut *const TavCborValue,

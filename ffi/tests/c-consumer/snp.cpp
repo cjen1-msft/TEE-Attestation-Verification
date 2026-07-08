@@ -159,7 +159,7 @@ TEST_CASE("snp: a tampered report fails verification and leaves the handle null"
 
     REQUIRE(error != nullptr);
     CHECK(report == nullptr);
-    CHECK(tav_error_code(error) == TAV_ERROR_SIGNATURE_VERIFICATION_ERROR);
+    CHECK(tav_error_code(error) == TAV_ERROR_SNP_SIGNATURE_VERIFICATION_ERROR);
     CHECK(std::string(tav_error_message(error)).size() > 0);
     tav_error_free(error);
 }

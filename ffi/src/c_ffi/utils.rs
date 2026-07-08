@@ -13,7 +13,7 @@ const NULL_ERROR_MESSAGE: &[u8] = b"null TavError pointer\0";
 #[no_mangle]
 pub unsafe extern "C" fn tav_error_code(error: *const TavError) -> TavErrorCode {
     if error.is_null() {
-        return TavErrorCode::ErrorCodeIsNull;
+        return TavErrorCode::ErrorIsNull;
     }
 
     unsafe { (*error).code }

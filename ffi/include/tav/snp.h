@@ -30,7 +30,7 @@ extern "C" {
  *   out_report state as TavError failures. Each input buffer is capped at
  *   1 GiB.
  * - Error accessors are defensive for NULL TavError pointers: tav_error_code
- *   returns TAV_ERROR_ERROR_IS_NULL and tav_error_message returns a static
+ *   returns TAV_ERROR_IS_NULL and tav_error_message returns a static
  *   diagnostic string.
  * - Report accessors require valid handles and valid out-parameters where
  *   applicable. Passing NULL, dangling, freed, or otherwise invalid pointers is

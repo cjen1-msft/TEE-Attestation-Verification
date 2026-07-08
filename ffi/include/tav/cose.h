@@ -31,7 +31,7 @@ extern "C" {
  *   slot. The slot is set to NULL before any fallible work and set to an owned
  *   handle only on success.
  * - Error accessors are defensive for NULL TavError pointers:
- *   tav_error_code returns TAV_ERROR_ERROR_IS_NULL and tav_error_message returns
+ *   tav_error_code returns TAV_ERROR_IS_NULL and tav_error_message returns
  *   a static diagnostic string.
  */
 
@@ -164,6 +164,16 @@ TAV_COSE_API TavError *tav_cbor_value_map_entry_at(
     const TavCborValue *value,
     size_t index,
     const TavCborValue **out_key,
+    const TavCborValue **out_value);
+
+TAV_COSE_API TavError *tav_cbor_value_map_key_at(
+    const TavCborValue *value,
+    size_t index,
+    const TavCborValue **out_key);
+
+TAV_COSE_API TavError *tav_cbor_value_map_value_at(
+    const TavCborValue *value,
+    size_t index,
     const TavCborValue **out_value);
 
 TAV_COSE_API TavError *tav_validate_cose_sign1(

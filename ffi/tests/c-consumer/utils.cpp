@@ -6,7 +6,7 @@
 #include "support.h"
 
 TEST_CASE("utils: error accessors are defensive against NULL") {
-    CHECK(tav_error_code(nullptr) == TAV_ERROR_ERROR_IS_NULL);
+    CHECK(tav_error_code(nullptr) == TAV_ERROR_IS_NULL);
 
     const char *message = tav_error_message(nullptr);
     REQUIRE(message != nullptr);

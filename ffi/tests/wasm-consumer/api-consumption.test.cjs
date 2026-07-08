@@ -228,6 +228,11 @@ test('cbor accessors decode scalars, containers, tags, and COSE_Sign1', () => {
   assert.equal(entry[1].text(), 'one');
   assert.equal(mapValue.map_key_at(1).text(), 'k');
   assert.equal(mapValue.map_value_at(1).array_at(0).simple(), 22);
+  assert.equal(mapValue.map_has_int(1n), true);
+  assert.equal(mapValue.map_has_int(2n), false);
+  assert.equal(mapValue.map_has_text('k'), true);
+  assert.equal(mapValue.map_has_text('x'), false);
+  assert.equal(mapValue.map_has(pkg.CborValue.from_bytes(Uint8Array.of(0x01))), true);
 
   const taggedValue = pkg.CborValue.from_bytes(Uint8Array.of(0xc1, 0x18, 0x2a));
   assert.equal(taggedValue.kind(), 'tagged');
@@ -391,5 +396,82 @@ test('verify_caci_attestation returns report data and rejects an empty policy se
       BigInt(manifest.minimum_svn),
     ),
     /at least one trusted CACI execution policy/,
+  );
+});
+
+// Standalone COSE_Sign1 signature verification: the wasm equivalent of the C
+// ABI tav_verify_cose_sign1_embedded / tav_verify_cose_sign1_detached. Uses the
+// same P-256 verification-only vector as the C consumer and in-crate tests.
+const COSE_ALG_ES256 = -7;
+const COSE_PHDR = [0xa1, 0x01, 0x26];
+const COSE_PAYLOAD = textBytes('verification-only COSE vector');
+const COSE_SPKI = new Uint8Array([
+  48, 89, 48, 19, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 8, 42, 134, 72, 206, 61,
+  3, 1, 7, 3, 66, 0, 4, 201, 171, 117, 35, 159, 13, 22, 69, 184, 252, 18, 119,
+  177, 246, 18, 133, 248, 151, 60, 164, 201, 112, 233, 4, 224, 54, 241, 53, 11,
+  85, 3, 249, 180, 113, 248, 87, 244, 106, 253, 83, 32, 139, 158, 31, 51, 72,
+  167, 32, 114, 51, 92, 109, 60, 158, 23, 216, 2, 11, 126, 11, 242, 186, 211,
+  205,
+]);
+const COSE_SIG = [
+  90, 37, 149, 163, 211, 129, 174, 167, 177, 116, 232, 19, 137, 13, 86, 18, 47,
+  248, 221, 245, 81, 132, 222, 25, 6, 230, 131, 70, 41, 27, 154, 74, 57, 92,
+  210, 184, 112, 104, 224, 64, 234, 0, 184, 153, 253, 249, 148, 125, 58, 93,
+  103, 128, 147, 144, 252, 13, 252, 91, 233, 88, 189, 169, 103, 151,
+];
+
+// Append a CBOR byte string (major type 2) for buffers up to 255 bytes.
+function putBstr(out, bytes) {
+  if (bytes.length < 24) out.push(0x40 | bytes.length);
+  else out.push(0x58, bytes.length);
+  for (const b of bytes) out.push(b);
+}
+
+// Build a tagged (18) COSE_Sign1 envelope [protected, {}, payload, signature].
+// With embeddedPayload false the payload slot is CBOR null (detached).
+function buildSign1(embeddedPayload) {
+  const env = [0xd2, 0x84];
+  putBstr(env, COSE_PHDR);
+  env.push(0xa0); // empty unprotected header map
+  if (embeddedPayload) putBstr(env, COSE_PAYLOAD);
+  else env.push(0xf6); // CBOR null
+  putBstr(env, COSE_SIG);
+  return new Uint8Array(env);
+}
+
+function coseSign1(bytes) {
+  return pkg.CborValue.from_bytes(bytes).as_cose_sign1();
+}
+
+test('CoseSign1.verify_embedded accepts a valid signature and rejects tampering', async () => {
+  // Valid embedded signature resolves.
+  await coseSign1(buildSign1(true)).verify_embedded(COSE_SPKI, COSE_ALG_ES256);
+
+  // Corrupting the trailing signature byte makes verification fail; a verifier
+  // that skipped the signature check would wrongly resolve.
+  const tampered = buildSign1(true);
+  tampered[tampered.length - 1] ^= 0xff;
+  await assertRejectsStringError(
+    coseSign1(tampered).verify_embedded(COSE_SPKI, COSE_ALG_ES256),
+  );
+});
+
+test('CoseSign1.verify_detached accepts a nil payload and rejects an embedded one', async () => {
+  // A detached envelope (nil payload) verifies against the caller-supplied payload.
+  await coseSign1(buildSign1(false)).verify_detached(COSE_PAYLOAD, COSE_SPKI, COSE_ALG_ES256);
+
+  // The wrong detached payload fails the signature check.
+  await assertRejectsStringError(
+    coseSign1(buildSign1(false)).verify_detached(
+      textBytes('a different payload'),
+      COSE_SPKI,
+      COSE_ALG_ES256,
+    ),
+  );
+
+  // An embedded (byte-string) payload is rejected by detached verification.
+  await assertRejectsStringError(
+    coseSign1(buildSign1(true)).verify_detached(COSE_PAYLOAD, COSE_SPKI, COSE_ALG_ES256),
+    /nil COSE payload/,
   );
 });

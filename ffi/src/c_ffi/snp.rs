@@ -12,7 +12,7 @@
 //! returned by this library. Passing null, dangling, freed, or otherwise
 //! invalid pointers to report accessors is undefined behavior. Error
 //! accessors are defensive for null pointers: [`crate::c_ffi::utils::tav_error_code`] returns
-//! [`TavErrorCode::ErrorCodeIsNull`] and [`crate::c_ffi::utils::tav_error_message`] returns a static
+//! [`TavErrorCode::ErrorIsNull`] and [`crate::c_ffi::utils::tav_error_message`] returns a static
 //! diagnostic string. Freeing a null report or error pointer is a no-op.
 //!
 //! Byte-slice report accessors return borrowed views by writing a pointer

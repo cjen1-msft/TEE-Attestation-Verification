@@ -27,13 +27,16 @@ use wasm_bindgen::prelude::*;
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TavErrorCode {
+    // Common codes, returned from any domain.
     Ok = 0,
     InvalidArgument = 1,
-    // Kept as `ErrorCodeIsNull` for wasm/JS backwards compatibility (the JS
-    // `ErrorCode` enum exported this member name before the C ABI existed).
-    // TODO: rename to `ErrorIsNull` for consistency in the next breaking release.
-    ErrorCodeIsNull = 2,
+    // Returned by `tav_error_code` when passed a null `TavError`.
+    ErrorIsNull = 2,
 
+    // SNP (1xx). Intentionally left unprefixed to preserve the wasm/JS
+    // `ErrorCode` member names (each variant maps 1:1 to a JS enum member).
+    // Prefixing to `Snp*` is deferred to a future breaking change and can be
+    // applied independently on the explicit C header side.
     UnsupportedProcessor = 101,
     InvalidRootCertificate = 102,
     CertificateChainError = 103,
@@ -132,41 +135,41 @@ mod tests {
                 TavErrorCode::InvalidArgument as i32,
             ),
             (
-                "TAV_ERROR_ERROR_IS_NULL",
-                TavErrorCode::ErrorCodeIsNull as i32,
+                "TAV_ERROR_IS_NULL",
+                TavErrorCode::ErrorIsNull as i32,
             ),
             (
-                "TAV_ERROR_UNSUPPORTED_PROCESSOR",
+                "TAV_ERROR_SNP_UNSUPPORTED_PROCESSOR",
                 TavErrorCode::UnsupportedProcessor as i32,
             ),
             (
-                "TAV_ERROR_INVALID_ROOT_CERTIFICATE",
+                "TAV_ERROR_SNP_INVALID_ROOT_CERTIFICATE",
                 TavErrorCode::InvalidRootCertificate as i32,
             ),
             (
-                "TAV_ERROR_CERTIFICATE_CHAIN_ERROR",
+                "TAV_ERROR_SNP_CERTIFICATE_CHAIN_ERROR",
                 TavErrorCode::CertificateChainError as i32,
             ),
             (
-                "TAV_ERROR_SIGNATURE_VERIFICATION_ERROR",
+                "TAV_ERROR_SNP_SIGNATURE_VERIFICATION_ERROR",
                 TavErrorCode::SignatureVerificationError as i32,
             ),
             (
-                "TAV_ERROR_TCB_VERIFICATION_ERROR",
+                "TAV_ERROR_SNP_TCB_VERIFICATION_ERROR",
                 TavErrorCode::TcbVerificationError as i32,
             ),
-            ("TAV_ERROR_CBOR", TavErrorCode::CoseCbor as i32),
+            ("TAV_ERROR_COSE_CBOR", TavErrorCode::CoseCbor as i32),
             (
-                "TAV_ERROR_UNEXPECTED_TYPE",
+                "TAV_ERROR_COSE_UNEXPECTED_TYPE",
                 TavErrorCode::CoseUnexpectedType as i32,
             ),
             (
-                "TAV_ERROR_UNSUPPORTED_ALGORITHM",
+                "TAV_ERROR_COSE_UNSUPPORTED_ALGORITHM",
                 TavErrorCode::CoseUnsupportedAlgorithm as i32,
             ),
-            ("TAV_ERROR_KEY_IMPORT", TavErrorCode::CoseKeyImport as i32),
+            ("TAV_ERROR_COSE_KEY_IMPORT", TavErrorCode::CoseKeyImport as i32),
             (
-                "TAV_ERROR_VERIFICATION",
+                "TAV_ERROR_COSE_VERIFICATION",
                 TavErrorCode::CoseVerification as i32,
             ),
             ("TAV_ERROR_CACI_COSE", TavErrorCode::CaciCose as i32),
@@ -228,7 +231,7 @@ mod tests {
         header.lines().find_map(|line| {
             let (lhs, rhs) = line.split_once('=')?;
             // Token-exact match on the enumerator name so a code whose name is a
-            // prefix of another (e.g. TAV_ERROR_CBOR vs a hypothetical
+            // prefix of another (e.g. TAV_ERROR_COSE_CBOR vs a hypothetical
             // TAV_ERROR_CBOR_EXTRA) cannot bind to the wrong line.
             if lhs.trim() != name {
                 return None;

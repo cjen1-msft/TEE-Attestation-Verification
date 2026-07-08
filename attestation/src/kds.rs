@@ -10,6 +10,7 @@ use crate::{certificate_chain::CertificateFetcher, AttestationReport};
 #[cfg(target_arch = "wasm32")]
 use js_sys::{Promise, Uint8Array};
 use log::{debug, info};
+use std::mem::discriminant;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -17,8 +18,12 @@ use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::JsFuture;
 
-/// Cache entry for certificate chain
-type ChainCache = Option<(Certificate, Certificate)>;
+/// Per-generation cache of AMD certificate chains (ARK and ASK).
+///
+/// Each processor generation has its own KDS certificate chain, so entries are
+/// keyed by [`snp::model::Generation`] to avoid returning one generation's chain
+/// for another.
+type ChainCache = Vec<(snp::model::Generation, (Certificate, Certificate))>;
 
 /// KDS (Key Distribution Service) certificate fetcher
 /// Fetches certificates from AMD's public KDS service
@@ -31,7 +36,7 @@ pub(crate) struct KdsFetcher {
 impl KdsFetcher {
     pub(crate) fn new() -> Self {
         Self {
-            chain_cache: None,
+            chain_cache: Vec::new(),
             vcek_cache: std::collections::HashMap::new(),
             use_cache: false,
         }
@@ -39,7 +44,7 @@ impl KdsFetcher {
 
     pub(crate) fn with_cache() -> Self {
         Self {
-            chain_cache: None,
+            chain_cache: Vec::new(),
             vcek_cache: std::collections::HashMap::new(),
             use_cache: true,
         }
@@ -51,10 +56,14 @@ impl CertificateFetcher for KdsFetcher {
         &mut self,
         model: snp::model::Generation,
     ) -> Result<(Certificate, Certificate), Box<dyn std::error::Error>> {
-        // Check cache for ARK/ASK
+        // Check cache for ARK/ASK for this processor generation
         if self.use_cache {
-            if let Some((ark, ask)) = &self.chain_cache {
-                info!("Using cached AMD certificate chain (ARK/ASK)");
+            if let Some((_, (ark, ask))) = self
+                .chain_cache
+                .iter()
+                .find(|(gen, _)| discriminant(gen) == discriminant(&model))
+            {
+                info!("Using cached AMD certificate chain (ARK/ASK) for {}", model);
                 return Ok((ark.clone(), ask.clone()));
             }
         }
@@ -80,10 +89,10 @@ impl CertificateFetcher for KdsFetcher {
             Crypto::to_pem(&ask).map_err(|e| format!("Failed to encode ASK certificate: {}", e))?
         );
 
-        // Store in cache if requested
+        // Store in cache if requested, keyed by processor generation
         if self.use_cache {
-            self.chain_cache = Some((ark.clone(), ask.clone()));
-            info!("Cached AMD certificate chain (ARK/ASK)");
+            self.chain_cache.push((model, (ark.clone(), ask.clone())));
+            info!("Cached AMD certificate chain (ARK/ASK) for {}", model);
         }
 
         Ok((ark, ask))
@@ -254,4 +263,60 @@ async fn fetch_url_bytes(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error
     }
 
     Ok(response_data)
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::*;
+    use crate::snp::model::Generation;
+
+    // Two distinct real certificates, used only to tell cache entries apart.
+    const MILAN_ARK: &[u8] = include_bytes!("pinned_arks/milan_ark.pem");
+    const GENOA_ARK: &[u8] = include_bytes!("pinned_arks/genoa_ark.pem");
+
+    fn cert(pem: &[u8]) -> Certificate {
+        Crypto::from_pem(pem).expect("valid test certificate")
+    }
+
+    fn pem(c: &Certificate) -> String {
+        Crypto::to_pem(c).expect("certificate encodes to PEM")
+    }
+
+    /// Regression test for #22: the ARK/ASK chain cache must return the entry
+    /// matching the requested processor generation, not simply the first cached
+    /// chain. Both lookups are cache hits, so no network access occurs.
+    #[tokio::test]
+    async fn chain_cache_is_keyed_by_generation() {
+        let milan = cert(MILAN_ARK);
+        let genoa = cert(GENOA_ARK);
+        assert_ne!(pem(&milan), pem(&genoa), "test fixtures must differ");
+
+        let mut fetcher = KdsFetcher::with_cache();
+        fetcher
+            .chain_cache
+            .push((Generation::Milan, (milan.clone(), milan.clone())));
+        fetcher
+            .chain_cache
+            .push((Generation::Genoa, (genoa.clone(), genoa.clone())));
+
+        let (milan_ark, _) = fetcher
+            .fetch_amd_chain(Generation::Milan)
+            .await
+            .expect("cached Milan chain");
+        let (genoa_ark, _) = fetcher
+            .fetch_amd_chain(Generation::Genoa)
+            .await
+            .expect("cached Genoa chain");
+
+        assert_eq!(
+            pem(&milan_ark),
+            pem(&milan),
+            "Milan lookup returned wrong chain"
+        );
+        assert_eq!(
+            pem(&genoa_ark),
+            pem(&genoa),
+            "Genoa lookup returned wrong chain"
+        );
+    }
 }

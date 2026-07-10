@@ -57,7 +57,6 @@
 
 mod cbor;
 mod cose;
-pub mod ffi;
 
 pub use cbor::{CborValue, MAX_CBOR_NESTING_DEPTH};
 pub use cose::*;

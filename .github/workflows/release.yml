@@ -204,6 +204,29 @@ jobs:
 
           tar -C ../dist -czf "../release-artifacts/tav-caci-${VERSION}.tar.gz" tav-caci
 
+      - name: Capture build toolchain info
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-artifacts
+          {
+            echo "# Build toolchain used for TAV WASM release artifacts"
+            echo "version: ${VERSION}"
+            echo "commit: ${{ needs.prepare_release.outputs.commit_sha }}"
+            echo
+            echo "## rustc"
+            rustc --version --verbose
+            echo
+            echo "## cargo"
+            cargo --version --verbose
+            echo
+            echo "## wasm-pack"
+            wasm-pack --version
+          } > release-artifacts/BUILD-INFO.txt
+
+          cat release-artifacts/BUILD-INFO.txt
+
       - name: Generate release artifact checksums
         shell: bash
         run: |
@@ -211,7 +234,7 @@ jobs:
 
           (
             cd release-artifacts
-            sha256sum tav-attestation-${VERSION}.tar.gz tav-caci-${VERSION}.tar.gz > SHA256SUMS
+            sha256sum tav-attestation-${VERSION}.tar.gz tav-caci-${VERSION}.tar.gz BUILD-INFO.txt > SHA256SUMS
           )
 
       - name: Upload WASM release artifacts

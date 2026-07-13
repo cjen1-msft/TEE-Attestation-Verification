@@ -27,7 +27,7 @@ Read the crate-specific docs for API details:
 
 ## Component dependencies
 
-Arrows point from each crate to the workspace crates it directly depends on.
+Arrows point from each dependency to the workspace crates that directly depend on it.
 
 ```mermaid
 flowchart LR
@@ -37,15 +37,15 @@ flowchart LR
     crypto[crypto]
     ffi[ffi]
 
-    attestation --> crypto
-    caci --> attestation
-    caci --> cose
-    caci --> crypto
-    cose --> crypto
-    ffi --> attestation
-    ffi --> caci
-    ffi --> cose
-    ffi --> crypto
+    crypto --> attestation
+    attestation --> caci
+    cose --> caci
+    crypto --> caci
+    crypto --> cose
+    attestation --> ffi
+    caci --> ffi
+    cose --> ffi
+    crypto --> ffi
 ```
 
 ## Crypto backend selection

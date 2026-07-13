@@ -25,6 +25,29 @@ Read the crate-specific docs for API details:
 - [`caci/README.md`](caci/README.md)
 - [`ffi/README.md`](ffi/README.md)
 
+## Component dependencies
+
+Arrows point from each dependency to the workspace crates that directly depend on it.
+
+```mermaid
+flowchart LR
+    attestation["attestation (SNP)"]
+    caci[caci]
+    cose[cose]
+    crypto[crypto]
+    ffi[ffi]
+
+    crypto --> attestation
+    attestation --> caci
+    cose --> caci
+    crypto --> caci
+    crypto --> cose
+    attestation --> ffi
+    caci --> ffi
+    cose --> ffi
+    crypto --> ffi
+```
+
 ## Crypto backend selection
 
 To be compliant in multiple environments, we provide backends using openssl and webcrypto, as well as a pure rust backend.

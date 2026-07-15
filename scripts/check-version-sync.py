@@ -10,6 +10,7 @@ import pathlib
 import re
 import sys
 import tomllib
+import xml.etree.ElementTree as ElementTree
 from collections.abc import Iterator
 from typing import Any
 
@@ -111,7 +112,36 @@ def check_version_sync(root: pathlib.Path) -> None:
                         f"{manifest}: {section}.{alias} points at internal package {package_name} "
                         f"but version is {actual_version!r}; expected {changelog_version!r}"
                     )
-    print(f"All Cargo package versions and internal dependency versions match {changelog_version}")
+
+    managed_manifest = (
+        root
+        / "wrappers"
+        / "dotnet"
+        / "TeeAttestationVerification"
+        / "TeeAttestationVerification.csproj"
+    )
+    if not managed_manifest.is_file():
+        raise VersionSyncError(f"Expected .NET project file not found: {managed_manifest}")
+
+    try:
+        managed_version = ElementTree.parse(managed_manifest).getroot().findtext(
+            "./PropertyGroup/Version"
+        )
+    except ElementTree.ParseError as error:
+        raise VersionSyncError(
+            f"Failed to parse {managed_manifest}: {error}"
+        ) from error
+
+    if managed_version != changelog_version:
+        raise VersionSyncError(
+            f"{managed_manifest}: package version {managed_version!r} does not match "
+            f"CHANGELOG.md latest version {changelog_version}"
+        )
+
+    print(
+        "All Cargo and .NET package versions and internal dependency versions "
+        f"match {changelog_version}"
+    )
 
 
 def main() -> int:

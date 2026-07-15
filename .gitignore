@@ -3,6 +3,11 @@ target/
 dist/
 pkg/
 
+# .NET build and package outputs
+wrappers/dotnet/**/bin/
+wrappers/dotnet/**/obj/
+wrappers/dotnet/artifacts/
+
 # Python bytecode cache
 __pycache__/
 *.pyc

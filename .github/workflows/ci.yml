@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check Cargo versions match changelog
+      - name: Check package versions match changelog
         run: python3 scripts/check-version-sync.py --root-path "${{ github.workspace }}"
 
   license-headers:

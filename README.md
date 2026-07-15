@@ -16,6 +16,7 @@ and returning authenticated report claims to callers.
 | `caci/` | `tee-attestation-verification-caci` | CACI UVM endorsement verification against SEV-SNP attestations and DID x509 roots of trust. |
 | `attestation/` | `tee-attestation-verification-lib` | Public attestation verification APIs, SEV-SNP report types, and KDS support. |
 | `ffi/` | `tee-attestation-verification-ffi` | Native C ABI and WebAssembly bindings for the Rust domain crates. |
+| `wrappers/dotnet/` | `TeeAttestationVerification` | Linux x64 .NET binding and NuGet package over the native C ABI. |
 | `demos/web-verify-kernel/` | n/a | Browser demo verifying an SNP attestation using the WASM bindings. |
 | `demos/caci-attestation-verify/` | n/a | Browser demo verifying an SNP CACI attestation using the WASM bindings. |
 

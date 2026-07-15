@@ -4,6 +4,14 @@
 
 [1.0.4]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.4
 
+### Added
+
+- Linux x64 .NET bindings and NuGet packaging over the C FFI.
+
+### Changed
+
+- Release artifacts now include the Linux x64 .NET package.
+
 ### Fixed
 
 - C FFI `TavCborValue` accessors now return owned rather than borrowed values. (#81)

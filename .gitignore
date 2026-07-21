@@ -4,9 +4,9 @@ dist/
 pkg/
 
 # .NET build and package outputs
-wrappers/dotnet/**/bin/
-wrappers/dotnet/**/obj/
-wrappers/dotnet/artifacts/
+ffi/csharp/**/bin/
+ffi/csharp/**/obj/
+ffi/csharp/artifacts/
 
 # Python bytecode cache
 __pycache__/

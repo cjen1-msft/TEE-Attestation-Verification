@@ -115,8 +115,8 @@ def check_version_sync(root: pathlib.Path) -> None:
 
     managed_manifest = (
         root
-        / "wrappers"
-        / "dotnet"
+        / "ffi"
+        / "csharp"
         / "TeeAttestationVerification"
         / "TeeAttestationVerification.csproj"
     )

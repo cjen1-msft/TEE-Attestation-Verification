@@ -122,6 +122,6 @@ jobs:
         run: |
           jobs=$(( $(nproc) / 2 ))
           CARGO_BUILD_JOBS="${jobs}" dotnet test \
-            wrappers/dotnet/TeeAttestationVerification.sln \
+            ffi/csharp/TeeAttestationVerification.sln \
             --configuration Release \
             -m:"${jobs}"

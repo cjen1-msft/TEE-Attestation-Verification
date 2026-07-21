@@ -51,7 +51,7 @@ jobs:
             fi
           done
 
-          managed_manifest="wrappers/dotnet/TeeAttestationVerification/TeeAttestationVerification.csproj"
+          managed_manifest="ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj"
           managed_version=$(
             git show "${commit_sha}:${managed_manifest}" |
               python3 -c 'import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.stdin).getroot().findtext("./PropertyGroup/Version"))'
@@ -198,7 +198,7 @@ jobs:
           jobs=$(( $(nproc) / 2 ))
           mkdir -p release-artifacts
           CARGO_BUILD_JOBS="${jobs}" dotnet pack \
-            wrappers/dotnet/TeeAttestationVerification/TeeAttestationVerification.csproj \
+            ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj \
             --configuration Release \
             -m:"${jobs}" \
             --output release-artifacts

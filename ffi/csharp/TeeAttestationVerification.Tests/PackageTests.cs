@@ -14,7 +14,7 @@ public sealed class PackageTests
     {
         string project = Path.Combine(
             FixtureData.RepositoryRoot,
-            "wrappers/dotnet/TeeAttestationVerification/TeeAttestationVerification.csproj");
+            "ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj");
         string output = Path.Combine(
             Path.GetTempPath(),
             nameof(TeeAttestationVerification),

@@ -6,7 +6,7 @@ pure-Rust native library; consumers do not need a system OpenSSL runtime.
 
 ## Build and test
 
-Run these commands from `wrappers/dotnet`:
+Run these commands from `ffi/csharp`:
 
 ```bash
 jobs=$(( $(nproc) / 2 ))

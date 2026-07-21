@@ -10,7 +10,7 @@ namespace TeeAttestationVerification.Tests;
 public sealed class PackageTests
 {
     [Fact]
-    public void NuGetContainsManagedLibraryAndLinuxX64NativeAsset()
+    public void NuGetContainsManagedLibraryAndOpenSslBackedLinuxX64NativeAsset()
     {
         string project = Path.Combine(
             FixtureData.RepositoryRoot,
@@ -54,6 +54,29 @@ public sealed class PackageTests
             Assert.DoesNotContain(entries, entry =>
                 entry.Contains("libssl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Contains("libcrypto", StringComparison.OrdinalIgnoreCase));
+
+            ZipArchiveEntry nativeEntry = archive.GetEntry(
+                "runtimes/linux-x64/native/libtee_attestation_verification_ffi.so")!;
+            string nativeLibrary = Path.Combine(
+                output, "libtee_attestation_verification_ffi.so");
+            nativeEntry.ExtractToFile(nativeLibrary);
+
+            using Process dependencies = Process.Start(new ProcessStartInfo(
+                "ldd", nativeLibrary)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            })!;
+            string dependencyOutput = dependencies.StandardOutput.ReadToEnd();
+            string dependencyError = dependencies.StandardError.ReadToEnd();
+            dependencies.WaitForExit();
+            Assert.True(
+                dependencies.ExitCode == 0,
+                $"ldd failed ({dependencies.ExitCode}){Environment.NewLine}" +
+                dependencyOutput + Environment.NewLine + dependencyError);
+            Assert.Contains("libssl.so.3", dependencyOutput);
+            Assert.Contains("libcrypto.so.3", dependencyOutput);
         }
         finally
         {

@@ -6,7 +6,7 @@
 
 ### Added
 
-- Linux x64 .NET bindings and NuGet packaging over the C FFI.
+- Linux x64 .NET bindings and OpenSSL-backed NuGet packaging over the C FFI.
 
 ### Changed
 

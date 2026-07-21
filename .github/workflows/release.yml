@@ -191,6 +191,9 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Install OpenSSL build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+
       - name: Build .NET package and native library
         shell: bash
         run: |
@@ -220,6 +223,9 @@ jobs:
             echo
             echo "## dotnet"
             dotnet --info
+            echo
+            echo "## openssl"
+            openssl version -a
           } > release-artifacts/DOTNET-BUILD-INFO.txt
 
           cat release-artifacts/DOTNET-BUILD-INFO.txt

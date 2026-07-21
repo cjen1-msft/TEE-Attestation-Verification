@@ -48,7 +48,7 @@ TAV follows the same interop and packaging boundary:
 3. Owned native errors, SNP reports, CBOR roots, and byte buffers use
    `SafeHandle`. Borrowed CBOR children retain their owning root, and borrowed
    native byte slices are copied before returning them to managed callers.
-4. MSBuild invokes Cargo for the `crypto_pure_rust` Linux shared library,
+4. MSBuild invokes Cargo for the `crypto_openssl` Linux shared library,
    copies it to local build output, and packs
    `libtee_attestation_verification_ffi.so` as
    `runtimes/linux-x64/native/libtee_attestation_verification_ffi.so`.
@@ -66,8 +66,8 @@ TAV follows the same interop and packaging boundary:
 - **Controlled glibc baseline.** Release packages are built on Ubuntu 22.04
   rather than a moving `ubuntu-latest` image. The initial native asset therefore
   targets glibc 2.35 or newer.
-- **Pure-Rust crypto backend.** Unlike rego-cpp's Linux package, TAV does not
-  add an OpenSSL runtime dependency to the NuGet consumer.
+- **OpenSSL crypto backend.** Like rego-cpp's Linux package, TAV dynamically
+  links to the system OpenSSL 3 runtime (`libssl.so.3` and `libcrypto.so.3`).
 - **One package.** There is no per-host package merge problem while only one
   RID is supported.
 - **Stronger API pinning.** Consumer tests are expected to cover the complete

@@ -2,7 +2,8 @@
 
 Linux x64 .NET 8 bindings for the repository's native TEE attestation
 verification C ABI. The NuGet package includes the managed assembly and the
-pure-Rust native library; consumers do not need a system OpenSSL runtime.
+OpenSSL-backed native library. Consumers must provide the OpenSSL 3 runtime
+libraries (`libssl.so.3` and `libcrypto.so.3`).
 
 ## Build and test
 
@@ -19,9 +20,11 @@ library with the repository fixtures. `Debug` managed builds invoke Cargo's
 `dev` profile; `Release` managed builds invoke Cargo with `--release`. The
 MSBuild target builds
 `target/{debug|release}/libtee_attestation_verification_ffi.so` with
-`crypto_pure_rust` on each managed build; Cargo's incremental build only
+`crypto_openssl` on each managed build; Cargo's incremental build only
 recompiles it when needed. Running Cargo each time also prevents an artifact
 built elsewhere with a different crypto feature from being reused accidentally.
+Building from source also requires the OpenSSL development headers and
+`pkg-config`.
 
 ## Pack
 

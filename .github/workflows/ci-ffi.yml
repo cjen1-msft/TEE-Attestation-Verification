@@ -117,6 +117,9 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Install OpenSSL build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+
       - name: Run .NET native API consumer tests
         shell: bash
         run: |

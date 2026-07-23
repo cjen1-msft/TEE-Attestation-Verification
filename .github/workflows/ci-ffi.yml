@@ -101,8 +101,8 @@ jobs:
       - name: Run C consumer tests
         run: ctest --test-dir target/c-consumer-tests --output-on-failure
 
-  ffi-dotnet-api:
-    name: FFI .NET API consumer tests (Linux x64)
+  ffi-csharp-api:
+    name: FFI C# API consumer tests (Linux x64)
     runs-on: ubuntu-latest
 
     steps:
@@ -115,16 +115,11 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "8.0.423"
 
       - name: Install OpenSSL build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
 
-      - name: Run .NET native API consumer tests
+      - name: Run C# native API consumer tests
         shell: bash
-        run: |
-          jobs=$(( $(nproc) / 2 ))
-          CARGO_BUILD_JOBS="${jobs}" dotnet test \
-            ffi/csharp/TeeAttestationVerification.sln \
-            --configuration Release \
-            -m:"${jobs}"
+        run: python3 ffi/csharp/run_tests.py --configuration Release

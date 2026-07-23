@@ -5,69 +5,100 @@ verification C ABI. The NuGet package includes the managed assembly and the
 OpenSSL-backed native library. Consumers must provide the OpenSSL 3 runtime
 libraries (`libssl.so.3` and `libcrypto.so.3`).
 
-## Build and test
+## Install
 
-Run these commands from `ffi/csharp`:
+Add the package from your configured NuGet feed:
 
 ```bash
-jobs=$(( $(nproc) / 2 ))
-CARGO_BUILD_JOBS="$jobs" dotnet build TeeAttestationVerification.sln -m:"$jobs"
-CARGO_BUILD_JOBS="$jobs" dotnet test TeeAttestationVerification.sln -m:"$jobs"
+dotnet add package TeeAttestationVerification --version 1.0.4
 ```
 
-The tests use xUnit v3 on Microsoft.Testing.Platform and exercise the native
-library with the repository fixtures. `Debug` managed builds invoke Cargo's
-`dev` profile; `Release` managed builds invoke Cargo with `--release`. The
-MSBuild target builds
-`target/{debug|release}/libtee_attestation_verification_ffi.so` with
-`crypto_openssl` on each managed build; Cargo's incremental build only
-recompiles it when needed. Running Cargo each time also prevents an artifact
-built elsewhere with a different crypto feature from being reused accidentally.
-Building from source also requires the OpenSSL development headers and
-`pkg-config`.
+The runtime environment must provide:
 
-## Pack
+- a Linux x64 process;
+- glibc 2.35 or newer;
+- OpenSSL 3 (`libssl.so.3` and `libcrypto.so.3`).
+
+Native calls from unsupported operating systems or process architectures throw
+`PlatformNotSupportedException`.
+
+## Verify an SNP attestation
+
+```csharp
+using TeeAttestationVerification;
+
+byte[] reportBytes = File.ReadAllBytes("attestation-report.bin");
+string arkPem = File.ReadAllText("ark.pem");
+string askPem = File.ReadAllText("ask.pem");
+string vcekPem = File.ReadAllText("vcek.pem");
+
+try
+{
+    using SnpAttestationReport report =
+        AttestationVerifier.VerifySnpAttestation(
+            reportBytes,
+            arkPem,
+            askPem,
+            vcekPem);
+
+    Console.WriteLine(Convert.ToHexString(report.Measurement()));
+}
+catch (VerifyException error)
+{
+    Console.Error.WriteLine($"{error.Code}: {error.Message}");
+}
+```
+
+`VerifySnpAttestation` authenticates the AMD certificate chain and SNP report
+signature before returning report claims. ARK, ASK, and VCEK arguments are
+ordered explicitly in the method signature.
+
+## Ownership and errors
+
+- `SnpAttestationReport`, `CborValue`, and `CoseSign1` own native handles and
+  implement `IDisposable`. Dispose every returned object.
+- CBOR navigation and COSE validation return independently owned views; parents
+  and children may be disposed in any order.
+- Byte-returning methods return managed copies.
+- Native failures become `VerifyException` with a stable `ErrorCode`. Managed
+  shape and format failures use standard argument or format exceptions.
+- Verification is synchronous. Inputs are copied before entering native code.
+
+`CACIPolicyDigests` validates, copies, and flattens trusted 32-byte CACI policy
+digests once so the immutable collection can be reused. `VerifyCaciAttestation`
+accepts minimum-TCB policy as a sequence of `(uint Cpuid, ReadOnlyMemory<byte>
+Tcb)` pairs. Each TCB must contain exactly eight bytes, and CPUIDs must be
+unique. The raw byte layout is `[boot loader, TEE, reserved x4, SNP, microcode]`
+for Milan/Genoa and `[FMC, boot loader, TEE, SNP, reserved x3, microcode]` for
+Turin. Pass an empty sequence for no minimum.
+
+The package includes XML API documentation for IDE hover and IntelliSense.
+
+## Build and test from source
+
+Run from `ffi/csharp`:
+
+```bash
+python3 run_tests.py --configuration Release
+```
+
+The runner packs a uniquely versioned NuGet into a temporary feed, restores the
+public xUnit consumer suite against that exact package, and tests the complete
+NuGet → C# → C ABI → Rust path. It also checks the package layout and OpenSSL
+dependencies.
+
+Source builds require Rust, the OpenSSL development headers, and `pkg-config`.
+The MSBuild project invokes Cargo with `crypto_openssl` for every build.
+
+To create a release package:
 
 ```bash
 jobs=$(( $(nproc) / 2 ))
 CARGO_BUILD_JOBS="$jobs" dotnet pack \
   TeeAttestationVerification/TeeAttestationVerification.csproj \
-  -c Release -m:"$jobs"
+  --configuration Release \
+  -m:"$jobs"
 ```
 
-The package places the native asset at:
-
-```text
-runtimes/linux-x64/native/libtee_attestation_verification_ffi.so
-```
-
-The managed interop declarations use the bare logical library name
-`tee_attestation_verification_ffi`, allowing .NET's runtime asset resolver to
-load the packaged `.so`.
-
-## Platform and API behavior
-
-- The initial supported runtime is Linux x64 only; MSBuild rejects other hosts
-  and runtime identifiers. Release packages are built on Ubuntu 22.04, so the
-  native binary requires glibc 2.35 or newer.
-- `SnpAttestationReport`, `CborValue`, and `CoseSign1` are disposable. Owned
-  native allocations are held by `SafeHandle` implementations.
-- CBOR children are borrowed by the C ABI. Each managed child retains the owned
-  root, so it remains usable after its parent wrapper is disposed. Borrowed byte
-  and text views are copied before returning to managed code.
-- Every native `TavError` is freed and surfaced as `VerifyException`, preserving
-  its `ErrorCode` and message. Managed shape/format errors use standard argument
-  or format exceptions.
-- Task-returning APIs execute the synchronous native call before returning a
-  completed or faulted task. Inputs are snapshotted first; no `Task.Run` or
-  caller-owned buffer is retained.
-- Individual inputs are capped at 1 GiB. Empty inputs are passed safely to the
-  native validator, and null managed references are rejected without entering
-  native code.
-- `VerifySnpAttestationWithCertChainAsync` accepts exactly three PEM- or
-  DER-encoded certificates ordered `[vcek, ask, ark]` and normalizes them to PEM
-  in managed code. `SplitPemBundle` rejects non-whitespace outside certificate
-  blocks; `SplitCertificateBundle` remains as an obsolete compatibility alias.
-- `VerifyCaciAttestation` translates the minimum-TCB JSON map into the native
-  CPUID/8-byte-TCB arrays and requires every trusted policy digest to be exactly
-  32 bytes.
+The native asset is packaged at
+`runtimes/linux-x64/native/libtee_attestation_verification_ffi.so`.

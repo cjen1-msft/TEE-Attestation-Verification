@@ -45,19 +45,20 @@ TAV follows the same interop and packaging boundary:
    native boundary; the managed package does not bind directly to Rust.
 2. Source-generated `LibraryImport` declarations use the bare logical library
    name `tee_attestation_verification_ffi`.
-3. Owned native errors, SNP reports, CBOR roots, and byte buffers use
-   `SafeHandle`. Borrowed CBOR children retain their owning root, and borrowed
-   native byte slices are copied before returning them to managed callers.
+3. Owned native errors, SNP reports, CBOR/COSE views, and byte buffers use
+   `SafeHandle`. CBOR navigation and COSE validation return independently owned
+   Arc-backed views, so parent and child wrappers may be disposed independently.
+   Borrowed native byte, text, and SNP report slices are copied before returning
+   them to managed callers.
 4. MSBuild invokes Cargo for the `crypto_openssl` Linux shared library,
    copies it to local build output, and packs
    `libtee_attestation_verification_ffi.so` as
    `runtimes/linux-x64/native/libtee_attestation_verification_ffi.so`.
 5. The managed API mirrors the WASM API, substituting .NET types and naming:
-   `Task` for promises, `byte[]`/`ReadOnlyMemory<byte>` for `Uint8Array`,
-   `long`/`ulong` for JavaScript `bigint`, and managed exceptions for rejected
-   promises.
-6. xUnit native integration tests exercise every public managed API member and
-   keep an approved reflection snapshot of the public surface.
+   synchronous return values for the synchronous C ABI,
+   `byte[]`/`ReadOnlyMemory<byte>` for `Uint8Array`, `long`/`ulong` for
+   JavaScript `bigint`, and managed exceptions for errors.
+6. xUnit native integration tests exercise every public managed API member.
 
 ## Intentional differences
 
@@ -73,9 +74,9 @@ TAV follows the same interop and packaging boundary:
 - **Stronger API pinning.** Consumer tests are expected to cover the complete
   managed surface, matching the repository's existing C and WASM consumer-test
   convention.
-- **Managed adapters fill C ABI gaps.** PEM bundle splitting, DER-to-PEM
-  conversion, and minimum-TCB JSON translation live in C# because the WASM API
-  exposes those shapes while the native ABI does not.
+- **Managed adapters fill C ABI gaps.** PEM bundle splitting lives in C# because
+  the WASM API exposes that helper while the native ABI does not. C# accepts
+  typed minimum-TCB pairs and flattens them into the C ABI's parallel arrays.
 
 ## Risks and follow-up criteria
 
@@ -83,9 +84,7 @@ TAV follows the same interop and packaging boundary:
   library before adding the corresponding RID asset; changing only the NuGet
   path is insufficient.
 - Alpine support requires a separately tested `linux-musl-*` artifact.
-- CBOR children in the C ABI are borrowed, unlike the independently owned
-  clones returned by the WASM binding. Managed lifetime tests must remain in
-  place when this area changes.
+- Managed tests preserve independent parent, child, and COSE wrapper ownership.
 - The native and managed package versions must move together at release time.
 
 The package layout follows Microsoft's

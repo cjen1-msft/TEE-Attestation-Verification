@@ -15,9 +15,8 @@
       <_Parameter1>RepositoryRoot</_Parameter1>
       <_Parameter2>$(RepoRoot)</_Parameter2>
     </AssemblyAttribute>
-    <Content Include="expected-api.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
-    <ProjectReference Include="..\TeeAttestationVerification\TeeAttestationVerification.csproj" />
+    <PackageReference Include="TeeAttestationVerification" Version="$(TavPackageVersion)" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <Using Include="TeeAttestationVerification" />
     <Using Include="Xunit" />

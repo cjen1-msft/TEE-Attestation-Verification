@@ -42,22 +42,12 @@ jobs:
           commit_sha=$(git rev-parse "refs/tags/${candidate_tag}^{commit}")
           normalized_version="${candidate_tag#tav-}"
 
-          for manifest in attestation/Cargo.toml caci/Cargo.toml cose/Cargo.toml crypto/Cargo.toml ffi/Cargo.toml; do
-            manifest_version=$(git show "${commit_sha}:${manifest}" | python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["package"]["version"])')
-
-            if [[ "${manifest_version}" != "${normalized_version}" ]]; then
-              echo "Tag ${candidate_tag} does not match ${manifest} version ${manifest_version}" >&2
-              exit 1
-            fi
-          done
-
-          managed_manifest="ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj"
-          managed_version=$(
-            git show "${commit_sha}:${managed_manifest}" |
-              python3 -c 'import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.stdin).getroot().findtext("./PropertyGroup/Version"))'
+          changelog_version=$(
+            sed -nE 's/^## \[([^]]+)\]$/\1/p' CHANGELOG.md |
+              head -n 1
           )
-          if [[ "${managed_version}" != "${normalized_version}" ]]; then
-            echo "Tag ${candidate_tag} does not match ${managed_manifest} version ${managed_version}" >&2
+          if [[ "${changelog_version}" != "${normalized_version}" ]]; then
+            echo "Tag ${candidate_tag} does not match CHANGELOG.md version ${changelog_version}" >&2
             exit 1
           fi
 
@@ -189,12 +179,12 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "8.0.423"
 
       - name: Install OpenSSL build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
 
-      - name: Build .NET package and native library
+      - name: Build and pack .NET package and native library
         shell: bash
         run: |
           set -euo pipefail
@@ -205,6 +195,42 @@ jobs:
             --configuration Release \
             -m:"${jobs}" \
             --output release-artifacts
+
+      - name: Verify packaged native library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t packages < <(
+            find release-artifacts -maxdepth 1 \
+              -name 'TeeAttestationVerification.*.nupkg' -print
+          )
+          if [[ "${#packages[@]}" -ne 1 ]]; then
+            echo "Expected one TeeAttestationVerification package, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+
+          native_library="${RUNNER_TEMP}/libtee_attestation_verification_ffi.so"
+          python3 - "${package}" "${native_library}" <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          package = pathlib.Path(sys.argv[1])
+          destination = pathlib.Path(sys.argv[2])
+          native_asset = "runtimes/linux-x64/native/libtee_attestation_verification_ffi.so"
+
+          with zipfile.ZipFile(package) as archive:
+              if native_asset not in archive.namelist():
+                  raise SystemExit(f"{package} does not contain {native_asset}")
+              destination.write_bytes(archive.read(native_asset))
+          PY
+
+          chmod +x "${native_library}"
+          dependencies=$(ldd "${native_library}")
+          grep -F "libssl.so.3 =>" <<< "${dependencies}"
+          grep -F "libcrypto.so.3 =>" <<< "${dependencies}"
 
       - name: Capture build toolchain info
         shell: bash

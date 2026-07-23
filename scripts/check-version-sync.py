@@ -69,12 +69,10 @@ def dependency_sections(data: dict[str, Any]) -> Iterator[tuple[str, dict[str, A
             yield f"target.{target_name}.{section}", target.get(section, {})
 
 
-def check_version_sync(root: pathlib.Path) -> None:
-    changelog_version = latest_changelog_version(root)
-
-    # First check that all packages define the same version
+def check_rust_version_sync(root: pathlib.Path, expected_version: str) -> None:
+    manifest_paths = workspace_manifest_paths_with_package(root)
     packages = set()
-    for manifest in workspace_manifest_paths_with_package(root):
+    for manifest in manifest_paths:
         if not manifest.is_file():
             raise VersionSyncError(f"Expected Cargo.toml file not found: {manifest}")
         manifest_data = load_toml(manifest)
@@ -82,10 +80,10 @@ def check_version_sync(root: pathlib.Path) -> None:
         if version is None:
             raise VersionSyncError(f"{manifest}: [package] section must define a version")
 
-        if version != changelog_version:
+        if version != expected_version:
             raise VersionSyncError(
                 f"{manifest}: package version {version} does not match "
-                f"CHANGELOG.md latest version {changelog_version}"
+                f"CHANGELOG.md latest version {expected_version}"
             )
 
         package = manifest_data.get("package", {}).get("name", None)
@@ -93,8 +91,7 @@ def check_version_sync(root: pathlib.Path) -> None:
             raise VersionSyncError(f"{manifest}: [package] section must define a name")
         packages.add(package)
 
-    # Check that all internal dependencies point to the same version as well
-    for manifest in workspace_manifest_paths_with_package(root):
+    for manifest in manifest_paths:
         manifest_data = load_toml(manifest)
         for section, dependencies in dependency_sections(manifest_data):
             for alias, spec in dependencies.items():
@@ -107,12 +104,14 @@ def check_version_sync(root: pathlib.Path) -> None:
                 else:
                     continue
 
-                if package_name in packages and actual_version != changelog_version:
+                if package_name in packages and actual_version != expected_version:
                     raise VersionSyncError(
                         f"{manifest}: {section}.{alias} points at internal package {package_name} "
-                        f"but version is {actual_version!r}; expected {changelog_version!r}"
+                        f"but version is {actual_version!r}; expected {expected_version!r}"
                     )
 
+
+def check_csharp_version_sync(root: pathlib.Path, expected_version: str) -> None:
     managed_manifest = (
         root
         / "ffi"
@@ -132,11 +131,17 @@ def check_version_sync(root: pathlib.Path) -> None:
             f"Failed to parse {managed_manifest}: {error}"
         ) from error
 
-    if managed_version != changelog_version:
+    if managed_version != expected_version:
         raise VersionSyncError(
             f"{managed_manifest}: package version {managed_version!r} does not match "
-            f"CHANGELOG.md latest version {changelog_version}"
+            f"CHANGELOG.md latest version {expected_version}"
         )
+
+
+def check_version_sync(root: pathlib.Path) -> None:
+    changelog_version = latest_changelog_version(root)
+    check_rust_version_sync(root, changelog_version)
+    check_csharp_version_sync(root, changelog_version)
 
     print(
         "All Cargo and .NET package versions and internal dependency versions "
@@ -153,7 +158,6 @@ def main() -> int:
         help = "Path to the root of the repository (default: current working directory)",
         type = pathlib.Path,
     )
-
     args = argparser.parse_args()
 
     try:

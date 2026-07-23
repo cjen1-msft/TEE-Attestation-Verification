@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.4]
+
+[1.0.4]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.4
+
+### Fixed
+
+- Reject duplicate and case-aliased CPUID entries in WASM minimum-TCB JSON. (#83)
+
 ## [1.0.3]
 
 [1.0.3]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.3

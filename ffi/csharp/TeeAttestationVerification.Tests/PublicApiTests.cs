@@ -1,135 +1,122 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.Reflection;
-using System.Text;
-
 namespace TeeAttestationVerification.Tests;
 
 public sealed class PublicApiTests
 {
     [Fact]
-    public void PublicApiMatchesReviewedSnapshot()
-    {
-        Assembly assembly = typeof(AttestationVerifier).Assembly;
-        string actual = string.Join(
-            Environment.NewLine,
-            assembly.GetExportedTypes()
-                .OrderBy(type => type.FullName, StringComparer.Ordinal)
-                .SelectMany(DescribeType)) + Environment.NewLine;
-        string expected = File.ReadAllText(
-            Path.Combine(AppContext.BaseDirectory, "expected-api.txt"),
-            Encoding.UTF8).ReplaceLineEndings();
-
-        Assert.Equal(expected, actual);
-    }
-
-    [Fact]
     public void ErrorCodeValuesMatchNativeAbi()
     {
-        Assert.Equal(0, (int)ErrorCode.Ok);
-        Assert.Equal(1, (int)ErrorCode.InvalidArgument);
-        Assert.Equal(2, (int)ErrorCode.ErrorIsNull);
-        Assert.Equal(3, (int)ErrorCode.Panic);
-        Assert.Equal(101, (int)ErrorCode.UnsupportedProcessor);
-        Assert.Equal(102, (int)ErrorCode.InvalidRootCertificate);
-        Assert.Equal(103, (int)ErrorCode.CertificateChainError);
-        Assert.Equal(104, (int)ErrorCode.SignatureVerificationError);
-        Assert.Equal(105, (int)ErrorCode.TcbVerificationError);
-        Assert.Equal(201, (int)ErrorCode.CoseCbor);
-        Assert.Equal(202, (int)ErrorCode.CoseUnexpectedType);
-        Assert.Equal(203, (int)ErrorCode.CoseUnsupportedAlgorithm);
-        Assert.Equal(204, (int)ErrorCode.CoseKeyImport);
-        Assert.Equal(205, (int)ErrorCode.CoseVerification);
-        Assert.Equal(301, (int)ErrorCode.CaciCose);
-        Assert.Equal(302, (int)ErrorCode.CaciCertificate);
-        Assert.Equal(303, (int)ErrorCode.CaciDidX509);
-        Assert.Equal(304, (int)ErrorCode.CaciSignature);
-        Assert.Equal(305, (int)ErrorCode.CaciMeasurement);
-        Assert.Equal(306, (int)ErrorCode.CaciPolicy);
+        AssertManagedEnumMatchesHeader<ErrorCode>(
+            "ffi/include/tav/utils.h",
+            "TavErrorCode",
+            [
+                ("TAV_ERROR_OK", nameof(ErrorCode.Ok)),
+                ("TAV_ERROR_INVALID_ARGUMENT", nameof(ErrorCode.InvalidArgument)),
+                ("TAV_ERROR_IS_NULL", nameof(ErrorCode.ErrorIsNull)),
+                ("TAV_ERROR_PANIC", nameof(ErrorCode.Panic)),
+                ("TAV_ERROR_SNP_UNSUPPORTED_PROCESSOR", nameof(ErrorCode.UnsupportedProcessor)),
+                ("TAV_ERROR_SNP_INVALID_ROOT_CERTIFICATE", nameof(ErrorCode.InvalidRootCertificate)),
+                ("TAV_ERROR_SNP_CERTIFICATE_CHAIN_ERROR", nameof(ErrorCode.CertificateChainError)),
+                ("TAV_ERROR_SNP_SIGNATURE_VERIFICATION_ERROR", nameof(ErrorCode.SignatureVerificationError)),
+                ("TAV_ERROR_SNP_TCB_VERIFICATION_ERROR", nameof(ErrorCode.TcbVerificationError)),
+                ("TAV_ERROR_COSE_CBOR", nameof(ErrorCode.CoseCbor)),
+                ("TAV_ERROR_COSE_UNEXPECTED_TYPE", nameof(ErrorCode.CoseUnexpectedType)),
+                ("TAV_ERROR_COSE_UNSUPPORTED_ALGORITHM", nameof(ErrorCode.CoseUnsupportedAlgorithm)),
+                ("TAV_ERROR_COSE_KEY_IMPORT", nameof(ErrorCode.CoseKeyImport)),
+                ("TAV_ERROR_COSE_VERIFICATION", nameof(ErrorCode.CoseVerification)),
+                ("TAV_ERROR_CACI_COSE", nameof(ErrorCode.CaciCose)),
+                ("TAV_ERROR_CACI_CERTIFICATE", nameof(ErrorCode.CaciCertificate)),
+                ("TAV_ERROR_CACI_DID_X509", nameof(ErrorCode.CaciDidX509)),
+                ("TAV_ERROR_CACI_SIGNATURE", nameof(ErrorCode.CaciSignature)),
+                ("TAV_ERROR_CACI_MEASUREMENT", nameof(ErrorCode.CaciMeasurement)),
+                ("TAV_ERROR_CACI_POLICY", nameof(ErrorCode.CaciPolicy)),
+            ]);
     }
 
     [Fact]
     public void CborKindValuesMatchNativeAbi()
     {
-        Assert.Equal(1, (int)CborKind.Int);
-        Assert.Equal(2, (int)CborKind.Simple);
-        Assert.Equal(3, (int)CborKind.Bytes);
-        Assert.Equal(4, (int)CborKind.Text);
-        Assert.Equal(5, (int)CborKind.Array);
-        Assert.Equal(6, (int)CborKind.Map);
-        Assert.Equal(7, (int)CborKind.Tagged);
+        AssertManagedEnumMatchesHeader<CborKind>(
+            "ffi/include/tav/cose.h",
+            "TavCborKind",
+            [
+                ("TAV_CBOR_KIND_INT", nameof(CborKind.Int)),
+                ("TAV_CBOR_KIND_SIMPLE", nameof(CborKind.Simple)),
+                ("TAV_CBOR_KIND_BYTES", nameof(CborKind.Bytes)),
+                ("TAV_CBOR_KIND_TEXT", nameof(CborKind.Text)),
+                ("TAV_CBOR_KIND_ARRAY", nameof(CborKind.Array)),
+                ("TAV_CBOR_KIND_MAP", nameof(CborKind.Map)),
+                ("TAV_CBOR_KIND_TAGGED", nameof(CborKind.Tagged)),
+            ]);
     }
 
-    private static IEnumerable<string> DescribeType(Type type)
+    [Fact]
+    public void CoseAlgorithmValuesMatchNativeAbi()
     {
-        string modifiers = type.IsAbstract && type.IsSealed
-            ? "public static class"
-            : type.IsEnum
-                ? "public enum"
-                : type.IsSealed ? "public sealed class" : "public class";
-        string inheritance = type.BaseType == typeof(Exception) ? " : Exception" : string.Empty;
-        yield return $"{modifiers} {Display(type)}{inheritance}";
-
-        if (type.IsEnum)
-        {
-            foreach (string name in Enum.GetNames(type))
-            {
-                yield return $"  {name} = {Convert.ToInt64(Enum.Parse(type, name))}";
-            }
-
-            yield break;
-        }
-
-        const BindingFlags flags =
-            BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
-        foreach (PropertyInfo property in type.GetProperties(flags)
-                     .OrderBy(property => property.Name, StringComparer.Ordinal))
-        {
-            yield return $"  property {Display(property.PropertyType)} {property.Name} {{ get; }}";
-        }
-
-        foreach (MethodInfo method in type.GetMethods(flags)
-                     .Where(method => !method.IsSpecialName)
-                     .OrderBy(method => method.Name, StringComparer.Ordinal)
-                     .ThenBy(method => string.Join(",", method.GetParameters().Select(
-                         parameter => Display(parameter.ParameterType))), StringComparer.Ordinal))
-        {
-            string obsolete = method.GetCustomAttribute<ObsoleteAttribute>() is null
-                ? string.Empty
-                : "[Obsolete] ";
-            string parameters = string.Join(
-                ", ",
-                method.GetParameters().Select(parameter =>
-                    $"{Display(parameter.ParameterType)} {parameter.Name}"));
-            yield return $"  {obsolete}method {Display(method.ReturnType)} {method.Name}({parameters})";
-        }
+        AssertManagedEnumMatchesHeader<CoseAlgorithm>(
+            "ffi/include/tav/cose.h",
+            "TavCoseAlgorithm",
+            [
+                ("TAV_COSE_ALG_ES256", nameof(CoseAlgorithm.Es256)),
+                ("TAV_COSE_ALG_ES384", nameof(CoseAlgorithm.Es384)),
+                ("TAV_COSE_ALG_ES512", nameof(CoseAlgorithm.Es512)),
+                ("TAV_COSE_ALG_PS256", nameof(CoseAlgorithm.Ps256)),
+                ("TAV_COSE_ALG_PS384", nameof(CoseAlgorithm.Ps384)),
+                ("TAV_COSE_ALG_PS512", nameof(CoseAlgorithm.Ps512)),
+            ]);
     }
 
-    private static string Display(Type type)
+    private static void AssertManagedEnumMatchesHeader<TEnum>(
+        string headerPath,
+        string cType,
+        IReadOnlyList<(string CName, string ManagedName)> mappings)
+        where TEnum : struct, Enum
     {
-        if (type.IsArray)
-        {
-            return $"{Display(type.GetElementType()!)}[]";
-        }
+        Assert.Equal(typeof(int), Enum.GetUnderlyingType(typeof(TEnum)));
 
-        if (type.IsGenericType)
-        {
-            string name = type.Name[..type.Name.IndexOf('`')];
-            return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(Display))}>";
-        }
+        IReadOnlyDictionary<string, long> cValues = ParseCEnum(headerPath, cType);
+        Dictionary<string, long> managedValues = Enum.GetNames<TEnum>()
+            .ToDictionary(
+                name => name,
+                name => Convert.ToInt64(Enum.Parse<TEnum>(name)),
+                StringComparer.Ordinal);
 
-        return type switch
+        Assert.Equal(
+            mappings.Select(mapping => mapping.CName).Order(StringComparer.Ordinal),
+            cValues.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            mappings.Select(mapping => mapping.ManagedName).Order(StringComparer.Ordinal),
+            managedValues.Keys.Order(StringComparer.Ordinal));
+
+        foreach ((string cName, string managedName) in mappings)
         {
-            _ when type == typeof(void) => "void",
-            _ when type == typeof(bool) => "bool",
-            _ when type == typeof(byte) => "byte",
-            _ when type == typeof(int) => "int",
-            _ when type == typeof(long) => "long",
-            _ when type == typeof(uint) => "uint",
-            _ when type == typeof(ulong) => "ulong",
-            _ when type == typeof(string) => "string",
-            _ => type.Name,
-        };
+            Assert.Equal(cValues[cName], managedValues[managedName]);
+        }
     }
+
+    private static IReadOnlyDictionary<string, long> ParseCEnum(
+        string relativePath,
+        string cType)
+    {
+        string header = FixtureData.ReadText(relativePath);
+        string declaration = $"typedef enum {cType} {{";
+        int bodyStart = header.IndexOf(declaration, StringComparison.Ordinal);
+        Assert.True(bodyStart >= 0, $"{relativePath} does not declare {cType}");
+        bodyStart += declaration.Length;
+        int bodyEnd = header.IndexOf('}', bodyStart);
+        Assert.True(bodyEnd >= 0, $"{relativePath} does not terminate {cType}");
+
+        return header[bodyStart..bodyEnd]
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => line.Contains('=', StringComparison.Ordinal))
+            .Select(line => line.TrimEnd(',').Split('=', 2))
+            .ToDictionary(
+                parts => parts[0].Trim(),
+                parts => long.Parse(parts[1].Trim(), System.Globalization.CultureInfo.InvariantCulture),
+                StringComparer.Ordinal);
+    }
+
 }

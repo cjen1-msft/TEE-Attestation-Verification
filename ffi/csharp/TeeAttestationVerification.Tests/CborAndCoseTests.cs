@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Text;
-using System.Runtime.CompilerServices;
 
 namespace TeeAttestationVerification.Tests;
 
@@ -28,165 +27,157 @@ public sealed class CborAndCoseTests
     ];
 
     [Fact]
-    public void CborScalarContainerTagAndMapMembersCallNativeAbi()
+    public void CborOperationsReturnExpectedValues()
     {
         using CborValue integer = CborValue.FromBytes(new byte[] { 0x01 });
         Assert.Equal(CborKind.Int, integer.Kind);
-        Assert.Equal(1, integer.Int());
+        Assert.Equal(1, integer.GetInt64());
+        Assert.False(integer.TryGetLength(out int scalarLength));
+        Assert.Equal(0, scalarLength);
         Assert.Equal(new byte[] { 0x01 }, integer.ToBytes());
-        VerifyException typeError = Assert.Throws<VerifyException>(() => integer.Text());
+        VerifyException typeError = Assert.Throws<VerifyException>(() => integer.GetTextString());
         Assert.Equal(ErrorCode.CoseUnexpectedType, typeError.Code);
 
         using CborValue simple = CborValue.FromBytes(new byte[] { 0xf6 });
         Assert.Equal(CborKind.Simple, simple.Kind);
-        Assert.Equal(22, simple.Simple());
+        Assert.Equal(22, simple.GetSimpleValue());
 
         using CborValue bytes = CborValue.FromBytes(new byte[] { 0x43, 1, 2, 3 });
         Assert.Equal(CborKind.Bytes, bytes.Kind);
-        Assert.Equal(new byte[] { 1, 2, 3 }, bytes.Bytes());
+        Assert.Equal(new byte[] { 1, 2, 3 }, bytes.GetByteString());
 
         using CborValue text = CborValue.FromBytes(new byte[] { 0x62, 0x68, 0x69 });
         Assert.Equal(CborKind.Text, text.Kind);
-        Assert.Equal("hi", text.Text());
+        Assert.Equal("hi", text.GetTextString());
 
         using CborValue array = CborValue.FromBytes(new byte[] { 0x82, 0x01, 0x61, 0x61 });
         Assert.Equal(CborKind.Array, array.Kind);
-        Assert.Equal(2, array.Length);
+        Assert.True(array.TryGetLength(out int arrayLength));
+        Assert.Equal(2, arrayLength);
         using CborValue first = array.ArrayAt(0);
         using CborValue second = array.ArrayAt(1);
-        Assert.Equal(1, first.Int());
-        Assert.Equal("a", second.Text());
+        Assert.Equal(1, first.GetInt64());
+        Assert.Equal("a", second.GetTextString());
 
         using CborValue map = CborValue.FromBytes(
             new byte[] { 0xa3, 0x01, 0x63, (byte)'o', (byte)'n', (byte)'e',
                 0x61, (byte)'k', 0x18, 0x2a, 0x41, 0xaa, 0xf5 });
         Assert.Equal(CborKind.Map, map.Kind);
-        Assert.Equal(3, map.Length);
+        Assert.True(map.TryGetLength(out int mapLength));
+        Assert.Equal(3, mapLength);
         using CborValue one = map.MapAt(1L);
         using CborValue fortyTwo = map.MapAt("k");
         using CborValue key = CborValue.FromBytes(new byte[] { 0x41, 0xaa });
         using CborValue trueValue = map.MapAt(key);
-        Assert.Equal("one", one.Text());
-        Assert.Equal(42, fortyTwo.Int());
-        Assert.Equal(21, trueValue.Simple());
-        Assert.True(map.MapHas(1L));
-        Assert.False(map.MapHas(2L));
-        Assert.True(map.MapHas("k"));
-        Assert.False(map.MapHas("missing"));
-        Assert.False(map.MapHas(""));
-        Assert.True(map.MapHas(key));
+        Assert.Equal("one", one.GetTextString());
+        Assert.Equal(42, fortyTwo.GetInt64());
+        Assert.Equal(21, trueValue.GetSimpleValue());
+        Assert.True(map.TryGetValue(1L, out CborValue? oneByTry));
+        using CborValue oneTryValue = Assert.IsType<CborValue>(oneByTry);
+        Assert.Equal("one", oneTryValue.GetTextString());
+        Assert.False(map.TryGetValue(2L, out CborValue? missingInt));
+        Assert.Null(missingInt);
+
+        Assert.True(map.TryGetValue("k", out CborValue? fortyTwoByTry));
+        using CborValue fortyTwoTryValue = Assert.IsType<CborValue>(fortyTwoByTry);
+        Assert.Equal(42, fortyTwoTryValue.GetInt64());
+        Assert.False(map.TryGetValue("missing", out CborValue? missingText));
+        Assert.Null(missingText);
+
+        Assert.True(map.TryGetValue(key, out CborValue? trueByTry));
+        using CborValue trueTryValue = Assert.IsType<CborValue>(trueByTry);
+        Assert.Equal(21, trueTryValue.GetSimpleValue());
 
         KeyValuePair<CborValue, CborValue> entry = map.MapEntryAt(0);
         using (entry.Key)
         using (entry.Value)
         {
-            Assert.Equal(1, entry.Key.Int());
-            Assert.Equal("one", entry.Value.Text());
+            Assert.Equal(1, entry.Key.GetInt64());
+            Assert.Equal("one", entry.Value.GetTextString());
         }
         using CborValue mapKey = map.MapKeyAt(1);
         using CborValue mapValue = map.MapValueAt(1);
-        Assert.Equal("k", mapKey.Text());
-        Assert.Equal(42, mapValue.Int());
+        Assert.Equal("k", mapKey.GetTextString());
+        Assert.Equal(42, mapValue.GetInt64());
 
         using CborValue tagged = CborValue.FromBytes(new byte[] { 0xc1, 0x18, 0x2a });
         Assert.Equal(CborKind.Tagged, tagged.Kind);
-        Assert.Equal(1ul, tagged.Tag());
+        Assert.Equal(1ul, tagged.GetTag());
         using CborValue taggedPayload = tagged.TaggedPayload();
-        Assert.Equal(42, taggedPayload.Int());
+        Assert.Equal(42, taggedPayload.GetInt64());
 
         Assert.Throws<VerifyException>(() => CborValue.FromBytes(ReadOnlyMemory<byte>.Empty));
     }
 
     [Fact]
-    public void BorrowedChildrenRetainOwnedRootAndCopyBorrowedBytes()
+    public void OwnedChildOutlivesDisposedParent()
     {
-        CborValue root = CborValue.FromBytes(new byte[] { 0x81, 0x82, 0x43, 1, 2, 3, 0x01 });
-        CborValue child = root.ArrayAt(0);
-        root.Dispose();
+        using CborValue parent = CborValue.FromBytes(
+            new byte[] { 0x81, 0x82, 0x43, 1, 2, 3, 0x01 });
+        using CborValue child = parent.ArrayAt(0);
+
+        parent.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => parent.ArrayAt(0));
         using CborValue grandchild = child.ArrayAt(0);
-        byte[] copied = grandchild.Bytes();
+        Assert.Equal(new byte[] { 1, 2, 3 }, grandchild.GetByteString());
+
         child.Dispose();
-
-        Assert.Equal(new byte[] { 1, 2, 3 }, copied);
-        Assert.Equal(new byte[] { 1, 2, 3 }, grandchild.Bytes());
-        grandchild.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => grandchild.Bytes());
+        Assert.Throws<ObjectDisposedException>(() => child.ArrayAt(0));
     }
 
     [Fact]
-    public void AbandonedBorrowedCborValueReleasesDisposedOwnedRoot()
+    public void OwnedCoseSign1OutlivesDisposedParent()
     {
-        CborValue root = CborValue.FromBytes(new byte[] { 0x81, 0x01 });
-        ManualResetEventSlim released = root.Lifetime.TrackReleaseForTest();
-        WeakReference borrower = AbandonCborBorrower(root);
+        using CborValue parent = CborValue.FromBytes(BuildSign1(embeddedPayload: true));
+        using CoseSign1 sign1 = parent.AsCoseSign1();
 
-        root.Dispose();
-        Assert.False(released.IsSet);
+        parent.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => parent.AsCoseSign1());
+        Assert.Equal(Payload, sign1.GetPayload());
 
-        Collect(borrower);
-
-        Assert.True(released.IsSet);
-        GC.KeepAlive(root);
+        sign1.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => sign1.GetPayload());
     }
 
     [Fact]
-    public void AbandonedCoseSign1ReleasesDisposedOwnedRoot()
+    public void CoseSign1AccessorsAndVerificationModesReturnExpectedResults()
     {
-        CborValue root = CborValue.FromBytes(BuildSign1(embeddedPayload: true));
-        ManualResetEventSlim released = root.Lifetime.TrackReleaseForTest();
-        WeakReference borrower = AbandonCoseBorrower(root);
-
-        root.Dispose();
-        Assert.False(released.IsSet);
-
-        Collect(borrower);
-
-        Assert.True(released.IsSet);
-        GC.KeepAlive(root);
-    }
-
-    [Fact]
-    public async Task CoseSign1AccessorsAndBothVerificationModesCallNativeAbi()
-    {
-        CborValue embeddedRoot = CborValue.FromBytes(BuildSign1(embeddedPayload: true));
-        CoseSign1 embedded = embeddedRoot.AsCoseSign1();
+        using CborValue embeddedRoot = CborValue.FromBytes(
+            BuildSign1(embeddedPayload: true));
+        using CoseSign1 embedded = embeddedRoot.AsCoseSign1();
         embeddedRoot.Dispose();
 
-        Assert.Equal(ProtectedHeader, embedded.Protected());
-        using CborValue protectedHeader = embedded.ProtectedHeader();
+        Assert.Equal(ProtectedHeader, embedded.GetProtectedBytes());
+        using CborValue protectedHeader = embedded.GetProtectedHeader();
         using CborValue algorithm = protectedHeader.MapAt(1L);
-        Assert.Equal(-7, algorithm.Int());
-        using CborValue unprotected = embedded.Unprotected();
+        Assert.Equal(-7, algorithm.GetInt64());
+        using CborValue unprotected = embedded.GetUnprotectedHeader();
         Assert.Equal(CborKind.Map, unprotected.Kind);
-        Assert.Equal(Payload, embedded.Payload());
-        Assert.Equal(Signature, embedded.Signature());
-        Task embeddedVerification = embedded.VerifyEmbeddedAsync(Spki, -7);
-        Assert.True(embeddedVerification.IsCompleted);
-        await embeddedVerification;
-        VerifyException emptyKey = await Assert.ThrowsAsync<VerifyException>(
-            () => embedded.VerifyEmbeddedAsync(ReadOnlyMemory<byte>.Empty, -7));
+        Assert.Equal(Payload, embedded.GetPayload());
+        Assert.Equal(Signature, embedded.GetSignature());
+        embedded.VerifyEmbedded(Spki, CoseAlgorithm.Es256);
+        VerifyException emptyKey = Assert.Throws<VerifyException>(
+            () => embedded.VerifyEmbedded(ReadOnlyMemory<byte>.Empty, CoseAlgorithm.Es256));
         Assert.Equal(ErrorCode.InvalidArgument, emptyKey.Code);
 
         byte[] tampered = BuildSign1(embeddedPayload: true);
         tampered[^1] ^= 0xff;
         using CborValue tamperedRoot = CborValue.FromBytes(tampered);
         using CoseSign1 tamperedSign1 = tamperedRoot.AsCoseSign1();
-        VerifyException verificationError = await Assert.ThrowsAsync<VerifyException>(
-            () => tamperedSign1.VerifyEmbeddedAsync(Spki, -7));
+        VerifyException verificationError = Assert.Throws<VerifyException>(
+            () => tamperedSign1.VerifyEmbedded(Spki, CoseAlgorithm.Es256));
         Assert.Equal(ErrorCode.CoseVerification, verificationError.Code);
 
         using CborValue detachedRoot = CborValue.FromBytes(BuildSign1(embeddedPayload: false));
         using CoseSign1 detached = detachedRoot.AsCoseSign1();
-        Task detachedVerification = detached.VerifyDetachedAsync(Payload, Spki, -7);
-        Assert.True(detachedVerification.IsCompleted);
-        await detachedVerification;
+        detached.VerifyDetached(Payload, Spki, CoseAlgorithm.Es256);
 
-        VerifyException wrongMode = await Assert.ThrowsAsync<VerifyException>(
-            () => embedded.VerifyDetachedAsync(Payload, Spki, -7));
+        VerifyException wrongMode = Assert.Throws<VerifyException>(
+            () => embedded.VerifyDetached(Payload, Spki, CoseAlgorithm.Es256));
         Assert.Equal(ErrorCode.CoseUnexpectedType, wrongMode.Code);
 
         embedded.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => embedded.Signature());
+        Assert.Throws<ObjectDisposedException>(() => embedded.GetSignature());
     }
 
     private static byte[] BuildSign1(bool embeddedPayload)
@@ -205,26 +196,6 @@ public sealed class CborAndCoseTests
 
         PutByteString(bytes, Signature);
         return bytes.ToArray();
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static WeakReference AbandonCborBorrower(CborValue root) =>
-        new(root.ArrayAt(0));
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static WeakReference AbandonCoseBorrower(CborValue root) =>
-        new(root.AsCoseSign1());
-
-    private static void Collect(WeakReference reference)
-    {
-        for (int attempt = 0; attempt < 10 && reference.IsAlive; attempt++)
-        {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-        }
-
-        Assert.False(reference.IsAlive);
     }
 
     private static void PutByteString(List<byte> destination, byte[] value)

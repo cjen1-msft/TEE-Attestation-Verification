@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -40,15 +41,15 @@ internal static class FixtureData
         string vcek = hostAmdCert.RootElement.GetProperty("vcekCert").GetString()!;
         string chain = hostAmdCert.RootElement.GetProperty("certificateChain").GetString()!;
         IReadOnlyList<string> split = AttestationVerifier.SplitPemBundle(chain);
-        byte[][] endorsements =
-        [
-            PemToDer(vcek),
-            PemToDer(split[0]),
-            PemToDer(split[1]),
-        ];
 
         JsonElement root = manifest.RootElement;
-        string minimumTcbJson = root.GetProperty("minimum_tcb").GetRawText();
+        (uint Cpuid, ReadOnlyMemory<byte> Tcb)[] minimumTcb =
+            root.GetProperty("minimum_tcb")
+                .EnumerateObject()
+                .Select(entry => (
+                    uint.Parse(entry.Name, NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+                    (ReadOnlyMemory<byte>)Convert.FromHexString(entry.Value.GetString()!)))
+                .ToArray();
         byte[][] policies = root.GetProperty("trusted_caci_execution_policies")
             .EnumerateArray()
             .Select(item => Convert.FromHexString(item.GetString()!))
@@ -57,10 +58,12 @@ internal static class FixtureData
         return new(
             Convert.FromHexString(RemoveWhitespace(
                 ReadText("demos/caci-attestation-verify/test-data/aci-report.hex"))),
-            endorsements,
+            split[1],
+            split[0],
+            vcek,
             Convert.FromBase64String(RemoveWhitespace(
                 ReadText("demos/caci-attestation-verify/test-data/reference-info.base64"))),
-            minimumTcbJson,
+            minimumTcb,
             policies,
             root.GetProperty("uvm_feed").GetString()!,
             root.GetProperty("minimum_svn").GetUInt64());
@@ -86,9 +89,11 @@ internal sealed record MilanInputs(byte[] Report, string Ark, string Ask, string
 
 internal sealed record CaciInputs(
     byte[] Report,
-    byte[][] Endorsements,
+    string Ark,
+    string Ask,
+    string Vcek,
     byte[] UvmEndorsement,
-    string MinimumTcbJson,
+    (uint Cpuid, ReadOnlyMemory<byte> Tcb)[] MinimumTcb,
     byte[][] Policies,
     string UvmFeed,
     ulong MinimumSvn);

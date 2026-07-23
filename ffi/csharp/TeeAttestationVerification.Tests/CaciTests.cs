@@ -6,38 +6,39 @@ namespace TeeAttestationVerification.Tests;
 public sealed class CaciTests
 {
     [Fact]
-    public async Task FullCaciVerificationAndEveryFacadeMemberCallNativeAbi()
+    public void CaciVerificationReturnsExpectedReportData()
     {
         CaciInputs input = FixtureData.LoadCaci();
         using SnpAttestationReport attestation =
-            await AttestationVerifier.VerifySnpAttestationWithCertChainAsync(
-                input.Report,
-                input.Endorsements.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray());
+            AttestationVerifier.VerifySnpAttestation(
+                input.Report, input.Ark, input.Ask, input.Vcek);
 
-        Task<CborValue> uvmVerification = AttestationVerifier.VerifyUvmEndorsementAsync(
+        using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
             input.UvmEndorsement, FixtureData.TrustedDidX509);
-        Assert.True(uvmVerification.IsCompleted);
-        using CborValue uvm = await uvmVerification;
         using CoseSign1 sign1 = uvm.AsCoseSign1();
-        Assert.NotEmpty(sign1.Payload());
+        Assert.NotEmpty(sign1.GetPayload());
+        byte[][] sourcePolicies = input.Policies
+            .Select(policy => (byte[])policy.Clone())
+            .ToArray();
+        CACIPolicyDigests trustedPolicies = PolicyDigests(sourcePolicies);
+        Assert.Equal(sourcePolicies.Length, trustedPolicies.Count);
+        sourcePolicies[0][0] ^= 0xff;
 
-        Task<byte[]> verification = AttestationVerifier.VerifyCaciAttestation(
+        byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
             attestation,
-            input.MinimumTcbJson,
-            input.Policies.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray(),
+            input.MinimumTcb,
+            trustedPolicies,
             uvm,
             input.UvmFeed,
             input.MinimumSvn);
-        Assert.True(verification.IsCompleted);
-        byte[] reportData = await verification;
 
         Assert.Equal(64, reportData.Length);
-        Assert.Equal(attestation.ReportData, reportData);
+        Assert.Equal(attestation.ReportData(), reportData);
 
-        byte[] withoutMinimumTcb = await AttestationVerifier.VerifyCaciAttestation(
+        byte[] withoutMinimumTcb = AttestationVerifier.VerifyCaciAttestation(
             attestation,
-            "",
-            input.Policies.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray(),
+            [],
+            trustedPolicies,
             uvm,
             input.UvmFeed,
             input.MinimumSvn);
@@ -45,84 +46,116 @@ public sealed class CaciTests
     }
 
     [Fact]
-    public async Task CaciErrorsPreserveNativeCodesAndManagedPolicyValidation()
+    public void CaciVerificationPreservesRepresentativeErrorsAndValidatesInputs()
     {
         CaciInputs input = FixtureData.LoadCaci();
         using SnpAttestationReport attestation =
-            await AttestationVerifier.VerifySnpAttestationWithCertChainAsync(
-                input.Report,
-                input.Endorsements.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray());
-        using CborValue uvm = await AttestationVerifier.VerifyUvmEndorsementAsync(
+            AttestationVerifier.VerifySnpAttestation(
+                input.Report, input.Ark, input.Ask, input.Vcek);
+        using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
             input.UvmEndorsement, FixtureData.TrustedDidX509);
 
-        VerifyException didError = await Assert.ThrowsAsync<VerifyException>(() =>
-            AttestationVerifier.VerifyUvmEndorsementAsync(
+        VerifyException didError = Assert.Throws<VerifyException>(() =>
+            AttestationVerifier.VerifyUvmEndorsement(
                 input.UvmEndorsement,
                 "did:x509:0:sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
                 "::eku:1.3.6.1.4.1.311.76.59.1.2"));
         Assert.Equal(ErrorCode.CaciDidX509, didError.Code);
         Assert.NotEmpty(didError.Message);
 
-        VerifyException emptyUvm = await Assert.ThrowsAsync<VerifyException>(() =>
-            AttestationVerifier.VerifyUvmEndorsementAsync(
+        VerifyException emptyUvm = Assert.Throws<VerifyException>(() =>
+            AttestationVerifier.VerifyUvmEndorsement(
                 ReadOnlyMemory<byte>.Empty, FixtureData.TrustedDidX509));
         Assert.Equal(ErrorCode.InvalidArgument, emptyUvm.Code);
 
         byte[] untrustedPolicy = (byte[])input.Policies[0].Clone();
         untrustedPolicy[0] ^= 0xff;
-        VerifyException policyError = await Assert.ThrowsAsync<VerifyException>(() =>
+        VerifyException policyError = Assert.Throws<VerifyException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
                 attestation,
-                input.MinimumTcbJson,
-                new ReadOnlyMemory<byte>[] { untrustedPolicy },
+                input.MinimumTcb,
+                new CACIPolicyDigests([untrustedPolicy]),
                 uvm,
                 input.UvmFeed,
                 input.MinimumSvn));
         Assert.Equal(ErrorCode.CaciPolicy, policyError.Code);
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
+        Assert.Throws<ArgumentException>(() => new CACIPolicyDigests([]));
+        Assert.Throws<ArgumentException>(() => new CACIPolicyDigests([new byte[31]]));
+
+        CACIPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
+        byte[] excessiveTcb = input.MinimumTcb[0].Tcb.ToArray();
+        excessiveTcb[0]++;
+        VerifyException tcbError = Assert.Throws<VerifyException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
-                attestation, input.MinimumTcbJson, [], uvm, input.UvmFeed, input.MinimumSvn));
-        await Assert.ThrowsAsync<ArgumentException>(() =>
+                attestation,
+                [(input.MinimumTcb[0].Cpuid, excessiveTcb)],
+                trustedPolicies,
+                uvm,
+                input.UvmFeed,
+                input.MinimumSvn));
+        Assert.Equal(ErrorCode.CaciPolicy, tcbError.Code);
+        Assert.Contains("SNP reported TCB", tcbError.Message);
+
+        ArgumentException invalidLength = Assert.Throws<ArgumentException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
-                attestation, """{"bad":"04000000000018db"}""",
-                input.Policies.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray(),
+                attestation, [(0x00a00f11u, new ReadOnlyMemory<byte>(new byte[7]))],
+                trustedPolicies,
                 uvm, input.UvmFeed, input.MinimumSvn));
-        await Assert.ThrowsAsync<ArgumentException>(() =>
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
-                attestation, """{"00a00f11":"00"}""",
-                input.Policies.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray(),
+                attestation, new OversizedMinimumTcbCollection(),
+                trustedPolicies,
                 uvm, input.UvmFeed, input.MinimumSvn));
-        await Assert.ThrowsAsync<ArgumentException>(() =>
+        Assert.Contains("must be 8 bytes, got 7", invalidLength.Message);
+
+        Assert.Throws<ArgumentNullException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
-                attestation, input.MinimumTcbJson, new ReadOnlyMemory<byte>[] { new byte[31] },
+                attestation, null!,
+                trustedPolicies,
                 uvm, input.UvmFeed, input.MinimumSvn));
     }
 
     [Fact]
-    public async Task DuplicateMinimumTcbCpuidUsesLastValue()
+    public void DuplicateMinimumTcbCpuidIsRejected()
     {
         CaciInputs input = FixtureData.LoadCaci();
         using SnpAttestationReport attestation =
-            await AttestationVerifier.VerifySnpAttestationWithCertChainAsync(
-                input.Report,
-                input.Endorsements.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray());
-        using CborValue uvm = await AttestationVerifier.VerifyUvmEndorsementAsync(
+            AttestationVerifier.VerifySnpAttestation(
+                input.Report, input.Ark, input.Ask, input.Vcek);
+        using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
             input.UvmEndorsement, FixtureData.TrustedDidX509);
+        CACIPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
 
-        byte[] reportData = await AttestationVerifier.VerifyCaciAttestation(
-            attestation,
-            """
-            {
-              "00a00f11": "ffffffffffffffff",
-              "00a00f11": "04000000000018db"
-            }
-            """,
-            input.Policies.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray(),
-            uvm,
-            input.UvmFeed,
-            input.MinimumSvn);
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            AttestationVerifier.VerifyCaciAttestation(
+                attestation,
+                [
+                    (0x00a00f11u, new ReadOnlyMemory<byte>(new byte[8])),
+                    (0x00a00f11u, new ReadOnlyMemory<byte>(new byte[8])),
+                ],
+                trustedPolicies,
+                uvm,
+                input.UvmFeed,
+                input.MinimumSvn));
+        Assert.Contains("Duplicate minimum TCB CPUID 0x00a00f11", error.Message);
+    }
 
-        Assert.Equal(attestation.ReportData, reportData);
+    private static CACIPolicyDigests PolicyDigests(byte[][] policies) =>
+        new(policies.Select(bytes => (ReadOnlyMemory<byte>)bytes));
+
+    private sealed class OversizedMinimumTcbCollection :
+        IReadOnlyCollection<(uint Cpuid, ReadOnlyMemory<byte> Tcb)>
+    {
+        public int Count => (NativeMaximumInputLength / 8) + 1;
+
+        private const int NativeMaximumInputLength = 1024 * 1024 * 1024;
+
+        public IEnumerator<(uint Cpuid, ReadOnlyMemory<byte> Tcb)> GetEnumerator() =>
+            throw new InvalidOperationException("Oversized input must not be enumerated.");
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
     }
 }

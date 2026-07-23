@@ -3,54 +3,52 @@
 
 namespace TeeAttestationVerification;
 
+/// <summary>An owned view of an immutable native CBOR document.</summary>
+/// <remarks>
+/// Navigation returns independently owned views that share the parsed document.
+/// Dispose every returned value. Byte and text results are managed copies.
+/// </remarks>
 public sealed class CborValue : IDisposable
 {
     private readonly object _sync = new();
-    private readonly CborLifetime _lifetime;
-    private readonly IntPtr _pointer;
-    private bool _disposed;
+    private readonly SafeCborValueHandle _handle;
 
-    private CborValue(CborLifetime lifetime, IntPtr pointer, bool addReference)
+    private CborValue(SafeCborValueHandle handle)
     {
-        if (pointer == IntPtr.Zero)
+        if (handle.IsInvalid)
         {
-            throw new InvalidOperationException("Native CBOR operation returned a null value.");
+            throw new InvalidOperationException("Native operation returned a null CBOR handle.");
         }
 
-        if (addReference)
+        _handle = handle;
+    }
+
+    /// <summary>Gets the CBOR major type.</summary>
+    public CborKind Kind => (CborKind)NativeMethods.CborKind(_handle);
+
+    /// <summary>Attempts to get the element count of an array or map.</summary>
+    /// <param name="length">
+    /// The element count when this value is an array or map; otherwise zero.
+    /// </param>
+    /// <returns><see langword="true"/> for an array or map; otherwise <see langword="false"/>.</returns>
+    public bool TryGetLength(out int length)
+    {
+        if (Kind is not (CborKind.Array or CborKind.Map))
         {
-            lifetime.AddReference();
+            length = 0;
+            return false;
         }
 
-        _lifetime = lifetime;
-        _pointer = pointer;
+        IntPtr error = NativeMethods.CborLength(_handle, out nuint nativeLength);
+        NativeResult.ThrowIfError(error);
+        length = NativeResult.ToManagedLength(nativeLength);
+        return true;
     }
 
-    ~CborValue()
-    {
-        DisposeCore();
-    }
-
-    public CborKind Kind
-    {
-        get
-        {
-            using CborNativeLease lease = AcquireNative();
-            return (CborKind)NativeMethods.CborKind(lease.Pointer);
-        }
-    }
-
-    public int Length
-    {
-        get
-        {
-            using CborNativeLease lease = AcquireNative();
-            IntPtr error = NativeMethods.CborLength(lease.Pointer, out nuint length);
-            NativeResult.ThrowIfError(error);
-            return NativeResult.ToManagedLength(length);
-        }
-    }
-
+    /// <summary>Parses an encoded CBOR document.</summary>
+    /// <param name="bytes">The encoded CBOR bytes, copied before native parsing.</param>
+    /// <returns>An owned root value.</returns>
+    /// <exception cref="VerifyException">The input is not valid supported CBOR.</exception>
     public static unsafe CborValue FromBytes(ReadOnlyMemory<byte> bytes)
     {
         byte[] snapshot = NativeResult.Snapshot(bytes, nameof(bytes));
@@ -63,10 +61,11 @@ public sealed class CborValue : IDisposable
         }
     }
 
+    /// <summary>Serializes this value as deterministic CBOR.</summary>
+    /// <returns>A managed copy of the encoding.</returns>
     public byte[] ToBytes()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborToBytes(lease.Pointer, out IntPtr bytes);
+        IntPtr error = NativeMethods.CborToBytes(_handle, out IntPtr bytes);
         NativeResult.ThrowIfError(error);
         if (bytes == IntPtr.Zero)
         {
@@ -76,212 +75,275 @@ public sealed class CborValue : IDisposable
         return NativeResult.CopyOwnedBytes(bytes);
     }
 
-    public long Int()
+    /// <summary>Reads this value as a signed integer.</summary>
+    /// <exception cref="VerifyException">This value is not an integer.</exception>
+    public long GetInt64()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborInt(lease.Pointer, out long value);
+        IntPtr error = NativeMethods.CborInt(_handle, out long value);
         NativeResult.ThrowIfError(error);
         return value;
     }
 
-    public byte Simple()
+    /// <summary>Reads this value as a CBOR simple value.</summary>
+    /// <exception cref="VerifyException">This value is not a simple value.</exception>
+    public byte GetSimpleValue()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborSimple(lease.Pointer, out byte value);
+        IntPtr error = NativeMethods.CborSimple(_handle, out byte value);
         NativeResult.ThrowIfError(error);
         return value;
     }
 
-    public byte[] Bytes()
+    /// <summary>Reads this value as a byte string.</summary>
+    /// <returns>A managed copy of the bytes.</returns>
+    /// <exception cref="VerifyException">This value is not a byte string.</exception>
+    public byte[] GetByteString()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborBytes(
-            lease.Pointer, out IntPtr data, out nuint length);
-        NativeResult.ThrowIfError(error);
-        return NativeResult.CopyBytes(data, length);
+        lock (_sync)
+        {
+            try
+            {
+                IntPtr error = NativeMethods.CborBytes(
+                    _handle, out IntPtr data, out nuint length);
+                NativeResult.ThrowIfError(error);
+                return NativeResult.CopyBytes(data, length);
+            }
+            finally
+            {
+                GC.KeepAlive(_handle);
+            }
+        }
     }
 
-    public string Text()
+    /// <summary>Reads this value as a UTF-8 text string.</summary>
+    /// <exception cref="VerifyException">This value is not a text string.</exception>
+    public string GetTextString()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborText(
-            lease.Pointer, out IntPtr text, out nuint length);
-        NativeResult.ThrowIfError(error);
-        return NativeResult.CopyUtf8(text, length);
+        lock (_sync)
+        {
+            try
+            {
+                IntPtr error = NativeMethods.CborText(
+                    _handle, out IntPtr text, out nuint length);
+                NativeResult.ThrowIfError(error);
+                return NativeResult.CopyUtf8(text, length);
+            }
+            finally
+            {
+                GC.KeepAlive(_handle);
+            }
+        }
     }
 
-    public ulong Tag()
+    /// <summary>Reads the tag number of a tagged value.</summary>
+    /// <exception cref="VerifyException">This value is not tagged.</exception>
+    public ulong GetTag()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborTag(lease.Pointer, out ulong tag);
+        IntPtr error = NativeMethods.CborTag(_handle, out ulong tag);
         NativeResult.ThrowIfError(error);
         return tag;
     }
 
+    /// <summary>Returns an independently owned view of a tagged payload.</summary>
+    /// <exception cref="VerifyException">This value is not tagged.</exception>
     public CborValue TaggedPayload()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborTaggedPayload(lease.Pointer, out IntPtr payload);
+        IntPtr error = NativeMethods.CborTaggedPayload(_handle, out IntPtr payload);
         NativeResult.ThrowIfError(error);
-        return CreateBorrowed(_lifetime, payload);
+        return FromOwnedHandle(payload);
     }
 
+    /// <summary>Returns an independently owned array element.</summary>
+    /// <param name="index">The zero-based array index.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative.</exception>
+    /// <exception cref="VerifyException">This value is not an array or the index is invalid.</exception>
     public CborValue ArrayAt(int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
-        using CborNativeLease lease = AcquireNative();
         IntPtr error = NativeMethods.CborArrayAt(
-            lease.Pointer, (nuint)index, out IntPtr child);
+            _handle, (nuint)index, out IntPtr child);
         NativeResult.ThrowIfError(error);
-        return CreateBorrowed(_lifetime, child);
+        return FromOwnedHandle(child);
     }
 
+    /// <summary>Returns an independently owned map value selected by an integer key.</summary>
+    /// <param name="key">The signed integer key.</param>
+    /// <exception cref="VerifyException">This value is not a map or the key is absent.</exception>
     public CborValue MapAt(long key)
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborMapAtInt(lease.Pointer, key, out IntPtr child);
+        IntPtr error = NativeMethods.CborMapAtInt(_handle, key, out IntPtr child);
         NativeResult.ThrowIfError(error);
-        return CreateBorrowed(_lifetime, child);
+        return FromOwnedHandle(child);
     }
 
+    /// <summary>Returns an independently owned map value selected by a text key.</summary>
+    /// <param name="key">The text key.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <exception cref="VerifyException">This value is not a map or the key is absent.</exception>
     public unsafe CborValue MapAt(string key)
     {
         byte[] utf8 = NativeResult.Utf8(key, nameof(key));
-        using CborNativeLease lease = AcquireNative();
         fixed (byte* keyPointer = utf8)
         {
             IntPtr error = NativeMethods.CborMapAtText(
-                lease.Pointer, (IntPtr)keyPointer, (nuint)utf8.Length, out IntPtr child);
+                _handle, (IntPtr)keyPointer, (nuint)utf8.Length, out IntPtr child);
             NativeResult.ThrowIfError(error);
-            return CreateBorrowed(_lifetime, child);
+            return FromOwnedHandle(child);
         }
     }
 
+    /// <summary>Returns an independently owned map value selected by a CBOR key.</summary>
+    /// <param name="key">The CBOR key.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
+    /// <exception cref="VerifyException">This value is not a map or the key is absent.</exception>
     public CborValue MapAt(CborValue key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        using CborNativeLease valueLease = AcquireNative();
-        using CborNativeLease keyLease = key.AcquireNative();
         IntPtr error = NativeMethods.CborMapAt(
-            valueLease.Pointer, keyLease.Pointer, out IntPtr child);
+            _handle, key._handle, out IntPtr child);
         NativeResult.ThrowIfError(error);
-        return CreateBorrowed(_lifetime, child);
+        return FromOwnedHandle(child);
     }
 
-    public bool MapHas(long key)
+    /// <summary>Attempts to get a map value selected by an integer key.</summary>
+    /// <param name="key">The signed integer key.</param>
+    /// <param name="value">The independently owned value when found; otherwise null.</param>
+    /// <returns><see langword="true"/> when the key exists; otherwise <see langword="false"/>.</returns>
+    public bool TryGetValue(long key, out CborValue? value)
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.CborMapHasInt(lease.Pointer, key, out byte result);
+        IntPtr error = NativeMethods.CborMapHasInt(_handle, key, out byte result);
         NativeResult.ThrowIfError(error);
-        return result != 0;
+        if (result == 0)
+        {
+            value = null;
+            return false;
+        }
+
+        value = MapAt(key);
+        return true;
     }
 
-    public unsafe bool MapHas(string key)
+    /// <summary>Attempts to get a map value selected by a text key.</summary>
+    /// <param name="key">The text key.</param>
+    /// <param name="value">The independently owned value when found; otherwise null.</param>
+    /// <returns><see langword="true"/> when the key exists; otherwise <see langword="false"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
+    public unsafe bool TryGetValue(string key, out CborValue? value)
     {
         byte[] utf8 = NativeResult.Utf8(key, nameof(key));
-        using CborNativeLease lease = AcquireNative();
         fixed (byte* keyPointer = utf8)
         {
             IntPtr error = NativeMethods.CborMapHasText(
-                lease.Pointer, (IntPtr)keyPointer, (nuint)utf8.Length, out byte result);
+                _handle, (IntPtr)keyPointer, (nuint)utf8.Length, out byte result);
             NativeResult.ThrowIfError(error);
-            return result != 0;
+            if (result == 0)
+            {
+                value = null;
+                return false;
+            }
         }
+
+        value = MapAt(key);
+        return true;
     }
 
-    public bool MapHas(CborValue key)
+    /// <summary>Attempts to get a map value selected by a CBOR key.</summary>
+    /// <param name="key">The CBOR key.</param>
+    /// <param name="value">The independently owned value when found; otherwise null.</param>
+    /// <returns><see langword="true"/> when the key exists; otherwise <see langword="false"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
+    public bool TryGetValue(CborValue key, out CborValue? value)
     {
         ArgumentNullException.ThrowIfNull(key);
-        using CborNativeLease valueLease = AcquireNative();
-        using CborNativeLease keyLease = key.AcquireNative();
         IntPtr error = NativeMethods.CborMapHas(
-            valueLease.Pointer, keyLease.Pointer, out byte result);
+            _handle, key._handle, out byte result);
         NativeResult.ThrowIfError(error);
-        return result != 0;
+        if (result == 0)
+        {
+            value = null;
+            return false;
+        }
+
+        value = MapAt(key);
+        return true;
     }
 
+    /// <summary>Returns independently owned key and value views for a map entry.</summary>
+    /// <param name="index">The zero-based map-entry index.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative.</exception>
+    /// <exception cref="VerifyException">This value is not a map or the index is invalid.</exception>
     public KeyValuePair<CborValue, CborValue> MapEntryAt(int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
-        using CborNativeLease lease = AcquireNative();
         IntPtr error = NativeMethods.CborMapEntryAt(
-            lease.Pointer, (nuint)index, out IntPtr key, out IntPtr value);
+            _handle, (nuint)index, out IntPtr keyPointer, out IntPtr valuePointer);
         NativeResult.ThrowIfError(error);
-        return new(
-            CreateBorrowed(_lifetime, key),
-            CreateBorrowed(_lifetime, value));
+
+        CborValue? key = null;
+        try
+        {
+            key = FromOwnedHandle(keyPointer);
+            CborValue value = FromOwnedHandle(valuePointer);
+            return new(key, value);
+        }
+        catch
+        {
+            key?.Dispose();
+            throw;
+        }
     }
 
+    /// <summary>Returns an independently owned key view for a map entry.</summary>
     public CborValue MapKeyAt(int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
-        using CborNativeLease lease = AcquireNative();
         IntPtr error = NativeMethods.CborMapKeyAt(
-            lease.Pointer, (nuint)index, out IntPtr key);
+            _handle, (nuint)index, out IntPtr key);
         NativeResult.ThrowIfError(error);
-        return CreateBorrowed(_lifetime, key);
+        return FromOwnedHandle(key);
     }
 
+    /// <summary>Returns an independently owned value view for a map entry.</summary>
     public CborValue MapValueAt(int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
-        using CborNativeLease lease = AcquireNative();
         IntPtr error = NativeMethods.CborMapValueAt(
-            lease.Pointer, (nuint)index, out IntPtr value);
+            _handle, (nuint)index, out IntPtr value);
         NativeResult.ThrowIfError(error);
-        return CreateBorrowed(_lifetime, value);
+        return FromOwnedHandle(value);
     }
 
+    /// <summary>Validates this value as COSE_Sign1 and returns an owned view.</summary>
+    /// <exception cref="VerifyException">The value is not a valid COSE_Sign1 envelope.</exception>
     public CoseSign1 AsCoseSign1()
     {
-        using CborNativeLease lease = AcquireNative();
-        IntPtr error = NativeMethods.ValidateCoseSign1(lease.Pointer, out IntPtr sign1);
+        IntPtr error = NativeMethods.ValidateCoseSign1(_handle, out IntPtr sign1);
         NativeResult.ThrowIfError(error);
-        return new CoseSign1(_lifetime, sign1);
+        return CoseSign1.FromOwnedHandle(sign1);
     }
 
+    /// <summary>Releases this native CBOR view.</summary>
     public void Dispose()
-    {
-        DisposeCore();
-        GC.SuppressFinalize(this);
-    }
-
-    private void DisposeCore()
     {
         lock (_sync)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _lifetime.ReleaseReference();
+            _handle.Dispose();
         }
     }
 
     internal static CborValue FromOwnedHandle(IntPtr pointer)
     {
-        if (pointer == IntPtr.Zero)
+        SafeCborValueHandle? handle = new(pointer);
+        try
         {
-            throw new InvalidOperationException("Native operation returned a null CBOR handle.");
+            CborValue value = new(handle);
+            handle = null;
+            return value;
         }
-
-        SafeCborValueHandle handle = new(pointer);
-        return new CborValue(new CborLifetime(handle), pointer, addReference: false);
-    }
-
-    internal static CborValue CreateBorrowed(CborLifetime lifetime, IntPtr pointer) =>
-        new(lifetime, pointer, addReference: true);
-
-    internal CborNativeLease AcquireNative()
-    {
-        lock (_sync)
+        finally
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            return new CborNativeLease(_lifetime, _pointer);
+            handle?.Dispose();
         }
     }
 
-    internal CborLifetime Lifetime => _lifetime;
+    internal SafeCborValueHandle Handle => _handle;
 }

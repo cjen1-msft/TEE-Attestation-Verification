@@ -3,7 +3,10 @@
 
 use crate::wasm_ffi::cose::CborValue as WasmCborValue;
 use js_sys::{Array, Uint8Array};
-use std::collections::BTreeMap;
+use serde::de::{Error as _, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use std::collections::BTreeSet;
+use std::fmt;
 use wasm_bindgen::{prelude::*, JsCast};
 
 use crate::wasm_ffi::snp::SnpAttestationReport;
@@ -117,11 +120,49 @@ fn parse_minimum_tcb_json(json: &str) -> Result<Vec<(Cpuid, TcbVersionRaw)>, Str
     if json.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let map: BTreeMap<String, String> =
-        serde_json::from_str(json).map_err(|e| format!("failed to parse minimum TCB JSON: {e}"))?;
-    map.into_iter()
-        .map(|(cpuid, tcb)| Ok((parse_cpuid_hex(&cpuid)?, parse_tcb_hex(&tcb)?)))
-        .collect()
+    serde_json::from_str::<MinimumTcbEntries>(json)
+        .map(|entries| entries.0)
+        .map_err(|error| format!("failed to parse minimum TCB JSON: {error}"))
+}
+
+struct MinimumTcbEntries(Vec<(Cpuid, TcbVersionRaw)>);
+
+impl<'de> Deserialize<'de> for MinimumTcbEntries {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(MinimumTcbVisitor)
+    }
+}
+
+struct MinimumTcbVisitor;
+
+impl<'de> Visitor<'de> for MinimumTcbVisitor {
+    type Value = MinimumTcbEntries;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an object mapping CPUID hex strings to TCB hex strings")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut seen = BTreeSet::new();
+        let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+        while let Some((cpuid_hex, tcb_hex)) = map.next_entry::<String, String>()? {
+            let cpuid = parse_cpuid_hex(&cpuid_hex).map_err(M::Error::custom)?;
+            if !seen.insert(cpuid.0) {
+                return Err(M::Error::custom(format!(
+                    "duplicate minimum TCB CPUID {cpuid_hex:?}"
+                )));
+            }
+            let tcb = parse_tcb_hex(&tcb_hex).map_err(M::Error::custom)?;
+            entries.push((cpuid, tcb));
+        }
+        Ok(MinimumTcbEntries(entries))
+    }
 }
 
 fn parse_cpuid_hex(hex: &str) -> Result<Cpuid, String> {

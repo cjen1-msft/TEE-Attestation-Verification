@@ -193,6 +193,7 @@ jobs:
           CARGO_BUILD_JOBS="${jobs}" dotnet pack \
             ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj \
             --configuration Release \
+            -p:PackageVersion="${VERSION}" \
             -m:"${jobs}" \
             --output release-artifacts
 

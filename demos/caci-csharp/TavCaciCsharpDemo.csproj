@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>TavCaciCsharpDemo</AssemblyName>
+    <RootNamespace>TavCaciCsharpDemo</RootNamespace>
+
+    <!-- Version of the packaged NuGet to consume. The test runner packs a
+         uniquely versioned package into a temporary feed and overrides this. -->
+    <TavPackageVersion Condition="'$(TavPackageVersion)' == ''">1.0.4</TavPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TeeAttestationVerification" Version="$(TavPackageVersion)" />
+  </ItemGroup>
+</Project>

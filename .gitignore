@@ -39,3 +39,7 @@ demos/caci-c-ffi/cmake_install.cmake
 demos/caci-c-ffi/build.ninja
 demos/caci-c-ffi/.ninja_deps
 demos/caci-c-ffi/.ninja_log
+
+# CACI C# demo build outputs
+demos/caci-csharp/bin/
+demos/caci-csharp/obj/

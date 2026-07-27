@@ -4,15 +4,13 @@ This demo verifies the checked-in Confidential ACI fixture through the packaged
 `TeeAttestationVerification` NuGet, the Linux x64 .NET binding over the native
 TEE attestation verification C ABI.
 
-Unlike a source consumer, the demo references the library by
-`<PackageReference Include="TeeAttestationVerification" ... />`, not a
-`<ProjectReference>`. It is built against the packed `.nupkg` restored from a
-temporary local feed, so it exercises the real NuGet → C# → C ABI → Rust path
-that a downstream .NET developer would use.
+The demo references the library as a `<PackageReference>` and builds against
+the packed `.nupkg` restored from a temporary local feed, so it exercises the
+NuGet → C# → C ABI → Rust path that a downstream .NET developer uses.
 
-It reproduces the `demos/caci-c-ffi/` scenario exactly: same positional
-arguments, same hardcoded minimum-TCB entry, and byte-identical stdout. The
-matching output demonstrates that the C and C# bindings agree.
+It runs the `demos/caci-c-ffi/` scenario: the same positional arguments, the
+same minimum-TCB entry, and byte-identical stdout. `run_tests.py` asserts that
+equality, so the C and C# bindings cannot drift apart.
 
 The demo hardcodes one minimum-TCB entry for the Milan fixture: CPUID
 `0x00A00F11` with minimum TCB bytes `04000000000018db`, passed as a

@@ -50,8 +50,7 @@ catch (VerifyException error)
 ```
 
 `VerifySnpAttestation` authenticates the AMD certificate chain and SNP report
-signature before returning report claims. ARK, ASK, and VCEK arguments are
-ordered explicitly in the method signature.
+signature before returning report claims.
 
 ## Ownership and errors
 

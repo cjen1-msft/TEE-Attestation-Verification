@@ -161,7 +161,7 @@ public static class AttestationVerifier
     public static byte[] VerifyCaciAttestation(
         SnpAttestationReport attestation,
         IEnumerable<(uint Cpuid, ReadOnlyMemory<byte> Tcb)> minimumTcb,
-        CACIPolicyDigests trustedCaciExecutionPolicies,
+        CaciPolicyDigests trustedCaciExecutionPolicies,
         CborValue uvm,
         string uvmFeed,
         ulong minimumSvn)

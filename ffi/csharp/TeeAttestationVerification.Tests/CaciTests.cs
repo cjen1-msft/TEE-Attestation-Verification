@@ -20,7 +20,7 @@ public sealed class CaciTests
         byte[][] sourcePolicies = input.Policies
             .Select(policy => (byte[])policy.Clone())
             .ToArray();
-        CACIPolicyDigests trustedPolicies = PolicyDigests(sourcePolicies);
+        CaciPolicyDigests trustedPolicies = PolicyDigests(sourcePolicies);
         Assert.Equal(sourcePolicies.Length, trustedPolicies.Count);
         sourcePolicies[0][0] ^= 0xff;
 
@@ -74,16 +74,16 @@ public sealed class CaciTests
             AttestationVerifier.VerifyCaciAttestation(
                 attestation,
                 input.MinimumTcb,
-                new CACIPolicyDigests([untrustedPolicy]),
+                new CaciPolicyDigests([untrustedPolicy]),
                 uvm,
                 input.UvmFeed,
                 input.MinimumSvn));
         Assert.Equal(ErrorCode.CaciPolicy, policyError.Code);
 
-        Assert.Throws<ArgumentException>(() => new CACIPolicyDigests([]));
-        Assert.Throws<ArgumentException>(() => new CACIPolicyDigests([new byte[31]]));
+        Assert.Throws<ArgumentException>(() => new CaciPolicyDigests([]));
+        Assert.Throws<ArgumentException>(() => new CaciPolicyDigests([new byte[31]]));
 
-        CACIPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
+        CaciPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
         byte[] excessiveTcb = input.MinimumTcb[0].Tcb.ToArray();
         excessiveTcb[0]++;
         VerifyException tcbError = Assert.Throws<VerifyException>(() =>
@@ -126,7 +126,7 @@ public sealed class CaciTests
                 input.Report, input.Ark, input.Ask, input.Vcek);
         using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
             input.UvmEndorsement, FixtureData.TrustedDidX509);
-        CACIPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
+        CaciPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
 
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
@@ -142,7 +142,7 @@ public sealed class CaciTests
         Assert.Contains("Duplicate minimum TCB CPUID 0x00a00f11", error.Message);
     }
 
-    private static CACIPolicyDigests PolicyDigests(byte[][] policies) =>
+    private static CaciPolicyDigests PolicyDigests(byte[][] policies) =>
         new(policies.Select(bytes => (ReadOnlyMemory<byte>)bytes));
 
     private sealed class OversizedMinimumTcbCollection :

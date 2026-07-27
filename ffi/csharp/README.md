@@ -64,7 +64,7 @@ ordered explicitly in the method signature.
   shape and format failures use standard argument or format exceptions.
 - Verification is synchronous. Inputs are copied before entering native code.
 
-`CACIPolicyDigests` validates, copies, and flattens trusted 32-byte CACI policy
+`CaciPolicyDigests` validates, copies, and flattens trusted 32-byte CACI policy
 digests once so the immutable collection can be reused. `VerifyCaciAttestation`
 accepts minimum-TCB policy as a sequence of `(uint Cpuid, ReadOnlyMemory<byte>
 Tcb)` pairs. Each TCB must contain exactly eight bytes, and CPUIDs must be

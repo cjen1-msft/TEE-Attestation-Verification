@@ -57,7 +57,7 @@ if (policy.Length == 0 || policy.Length % PolicyDigestLength != 0)
 }
 
 int policyDigestCount = policy.Length / PolicyDigestLength;
-CACIPolicyDigests trustedPolicies = new(
+CaciPolicyDigests trustedPolicies = new(
     Enumerable.Range(0, policyDigestCount)
         .Select(index => (ReadOnlyMemory<byte>)policy
             .AsMemory(index * PolicyDigestLength, PolicyDigestLength)));
@@ -149,7 +149,7 @@ static CborValue VerifyUvmEndorsement(byte[] uvmEndorsement, string trustedDidX5
 static byte[] VerifyCaciAttestation(
     SnpAttestationReport attestation,
     IEnumerable<(uint Cpuid, ReadOnlyMemory<byte> Tcb)> minimumTcb,
-    CACIPolicyDigests trustedPolicies,
+    CaciPolicyDigests trustedPolicies,
     CborValue uvm,
     string uvmFeed,
     ulong minimumSvn)

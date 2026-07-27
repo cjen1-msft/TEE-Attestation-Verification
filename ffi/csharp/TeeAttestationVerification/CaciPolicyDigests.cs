@@ -7,7 +7,7 @@ namespace TeeAttestationVerification;
 /// An immutable, native-ready collection of trusted CACI execution-policy
 /// SHA-256 digests.
 /// </summary>
-public sealed class CACIPolicyDigests
+public sealed class CaciPolicyDigests
 {
     private const int DigestLength = 32;
     private readonly byte[] _bytes;
@@ -19,7 +19,7 @@ public sealed class CACIPolicyDigests
     /// The collection is empty or an element is not 32 bytes.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">The collection exceeds the native input limit.</exception>
-    public CACIPolicyDigests(IEnumerable<ReadOnlyMemory<byte>> digests)
+    public CaciPolicyDigests(IEnumerable<ReadOnlyMemory<byte>> digests)
     {
         ArgumentNullException.ThrowIfNull(digests);
 

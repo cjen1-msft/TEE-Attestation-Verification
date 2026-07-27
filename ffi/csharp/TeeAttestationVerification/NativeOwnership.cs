@@ -79,8 +79,8 @@ internal static class NativeResult
         }
 
         using SafeErrorHandle handle = new(error);
-        ErrorCode code = (ErrorCode)NativeMethods.ErrorCode(error);
-        string message = Marshal.PtrToStringUTF8(NativeMethods.ErrorMessage(error))
+        ErrorCode code = (ErrorCode)NativeMethods.ErrorCode(handle);
+        string message = Marshal.PtrToStringUTF8(NativeMethods.ErrorMessage(handle))
             ?? "native verification failed without an error message";
         throw new VerifyException(code, message);
     }
@@ -89,8 +89,8 @@ internal static class NativeResult
     {
         using SafeByteBufferHandle handle = new(buffer);
         return CopyBytes(
-            NativeMethods.ByteBufferData(buffer),
-            NativeMethods.ByteBufferLength(buffer));
+            NativeMethods.ByteBufferData(handle),
+            NativeMethods.ByteBufferLength(handle));
     }
 
     internal static byte[] CopyBytes(IntPtr data, nuint length)

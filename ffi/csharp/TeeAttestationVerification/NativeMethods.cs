@@ -33,21 +33,29 @@ internal static partial class NativeMethods
         return IntPtr.Zero;
     }
 
+    // Handles cross the boundary as SafeHandle so the generated marshaller holds a
+    // reference for the duration of the call. The four tav_*_free imports are the
+    // only exception; each is annotated where it is declared.
+
     [LibraryImport(LibraryName, EntryPoint = "tav_error_code")]
-    internal static partial int ErrorCode(IntPtr error);
+    internal static partial int ErrorCode(SafeErrorHandle error);
 
     [LibraryImport(LibraryName, EntryPoint = "tav_error_message")]
-    internal static partial IntPtr ErrorMessage(IntPtr error);
+    internal static partial IntPtr ErrorMessage(SafeErrorHandle error);
 
+    // Runs from SafeHandle.ReleaseHandle: the reference count is already zero, so the
+    // raw handle is passed and no marshaller reference can be taken.
     [LibraryImport(LibraryName, EntryPoint = "tav_error_free")]
     internal static partial void ErrorFree(IntPtr error);
 
     [LibraryImport(LibraryName, EntryPoint = "tav_byte_buffer_data")]
-    internal static partial IntPtr ByteBufferData(IntPtr buffer);
+    internal static partial IntPtr ByteBufferData(SafeByteBufferHandle buffer);
 
     [LibraryImport(LibraryName, EntryPoint = "tav_byte_buffer_len")]
-    internal static partial nuint ByteBufferLength(IntPtr buffer);
+    internal static partial nuint ByteBufferLength(SafeByteBufferHandle buffer);
 
+    // Runs from SafeHandle.ReleaseHandle: the reference count is already zero, so the
+    // raw handle is passed and no marshaller reference can be taken.
     [LibraryImport(LibraryName, EntryPoint = "tav_byte_buffer_free")]
     internal static partial void ByteBufferFree(IntPtr buffer);
 
@@ -217,6 +225,8 @@ internal static partial class NativeMethods
     internal static partial void SnpSignatureS(
         SafeSnpReportHandle report, out IntPtr data, out nuint length);
 
+    // Runs from SafeHandle.ReleaseHandle: the reference count is already zero, so the
+    // raw handle is passed and no marshaller reference can be taken.
     [LibraryImport(LibraryName, EntryPoint = "tav_snp_attestation_report_free")]
     internal static partial void SnpReportFree(IntPtr report);
 
@@ -299,6 +309,8 @@ internal static partial class NativeMethods
     internal static partial IntPtr ValidateCoseSign1(
         SafeCborValueHandle value, out IntPtr sign1);
 
+    // Runs from SafeHandle.ReleaseHandle: the reference count is already zero, so the
+    // raw handle is passed and no marshaller reference can be taken.
     [LibraryImport(LibraryName, EntryPoint = "tav_cbor_value_free")]
     internal static partial void CborFree(IntPtr value);
 

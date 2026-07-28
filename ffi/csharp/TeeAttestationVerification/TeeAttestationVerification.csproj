@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>TeeAttestationVerification</AssemblyName>
     <RootNamespace>TeeAttestationVerification</RootNamespace>
     <PackageId>TeeAttestationVerification</PackageId>

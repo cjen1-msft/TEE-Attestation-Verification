@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>TavCaciCsharpDemo</AssemblyName>
     <RootNamespace>TavCaciCsharpDemo</RootNamespace>
+    <IsPackable>false</IsPackable>
 
     <!-- Version of the packaged NuGet to consume. The test runner packs a
          uniquely versioned package into a temporary feed and overrides this. -->

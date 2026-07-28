@@ -164,6 +164,110 @@ jobs:
           name: release-artifacts-wasm
           path: release-artifacts/*
 
+  package_dotnet:
+    name: Package .NET artifacts
+    runs-on: ubuntu-22.04
+    needs: prepare_release
+    env:
+      VERSION: ${{ needs.prepare_release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare_release.outputs.commit_sha }}
+
+      - name: Install rust
+        shell: bash
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: "8.0.423"
+
+      - name: Install OpenSSL build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+
+      - name: Build and pack .NET package and native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          jobs=$(( $(nproc) / 2 ))
+          mkdir -p release-artifacts
+          CARGO_BUILD_JOBS="${jobs}" dotnet pack \
+            ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj \
+            --configuration Release \
+            -p:PackageVersion="${VERSION}" \
+            -m:"${jobs}" \
+            --output release-artifacts
+
+      - name: Verify packaged native library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t packages < <(
+            find release-artifacts -maxdepth 1 \
+              -name 'TeeAttestationVerification.*.nupkg' -print
+          )
+          if [[ "${#packages[@]}" -ne 1 ]]; then
+            echo "Expected one TeeAttestationVerification package, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+
+          native_library="${RUNNER_TEMP}/libtee_attestation_verification_ffi.so"
+          python3 - "${package}" "${native_library}" <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          package = pathlib.Path(sys.argv[1])
+          destination = pathlib.Path(sys.argv[2])
+          native_asset = "runtimes/linux-x64/native/libtee_attestation_verification_ffi.so"
+
+          with zipfile.ZipFile(package) as archive:
+              if native_asset not in archive.namelist():
+                  raise SystemExit(f"{package} does not contain {native_asset}")
+              destination.write_bytes(archive.read(native_asset))
+          PY
+
+          chmod +x "${native_library}"
+          dependencies=$(ldd "${native_library}")
+          grep -F "libssl.so.3 =>" <<< "${dependencies}"
+          grep -F "libcrypto.so.3 =>" <<< "${dependencies}"
+
+      - name: Capture build toolchain info
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "# Build toolchain used for TAV .NET release artifacts"
+            echo "version: ${VERSION}"
+            echo "commit: ${{ needs.prepare_release.outputs.commit_sha }}"
+            echo
+            echo "## rustc"
+            rustc --version --verbose
+            echo
+            echo "## cargo"
+            cargo --version --verbose
+            echo
+            echo "## dotnet"
+            dotnet --info
+            echo
+            echo "## openssl"
+            openssl version -a
+          } > release-artifacts/DOTNET-BUILD-INFO.txt
+
+          cat release-artifacts/DOTNET-BUILD-INFO.txt
+
+      - name: Upload .NET release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-artifacts-dotnet
+          path: release-artifacts/*
+
   create_release:
     name: Create release
     runs-on: ubuntu-22.04
@@ -176,6 +280,7 @@ jobs:
       - ci-crypto
       - ci-demo
       - ci-ffi
+      - package_dotnet
       - package_wasm
     permissions:
       contents: write

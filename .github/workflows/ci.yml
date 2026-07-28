@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check Cargo versions match changelog
+      - name: Check package versions match changelog
         run: python3 scripts/check-version-sync.py --root-path "${{ github.workspace }}"
 
   license-headers:

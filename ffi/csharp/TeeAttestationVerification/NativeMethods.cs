@@ -1,37 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace TeeAttestationVerification;
 
 internal static partial class NativeMethods
 {
+    // Platform-neutral name: .NET's default resolution probes the
+    // platform-appropriate file name and picks the runtimes/<rid>/native asset
+    // for the running platform, so the package contents are the only statement
+    // of which platforms are supported.
     private const string LibraryName = "tee_attestation_verification_ffi";
-
-    static NativeMethods()
-    {
-        NativeLibrary.SetDllImportResolver(
-            typeof(NativeMethods).Assembly,
-            ResolveNativeLibrary);
-    }
-
-    private static IntPtr ResolveNativeLibrary(
-        string libraryName,
-        Assembly assembly,
-        DllImportSearchPath? searchPath)
-    {
-        if (libraryName == LibraryName &&
-            (!OperatingSystem.IsLinux() ||
-             RuntimeInformation.ProcessArchitecture != Architecture.X64))
-        {
-            throw new PlatformNotSupportedException(
-                "TeeAttestationVerification supports Linux x64 processes only.");
-        }
-
-        return IntPtr.Zero;
-    }
 
     // Handles cross the boundary as SafeHandle so the generated marshaller holds a
     // reference for the duration of the call. The four tav_*_free imports are the

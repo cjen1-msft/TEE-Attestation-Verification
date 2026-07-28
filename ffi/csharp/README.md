@@ -19,8 +19,9 @@ The runtime environment must provide:
 - glibc 2.35 or newer;
 - OpenSSL 3 (`libssl.so.3` and `libcrypto.so.3`).
 
-Native calls from unsupported operating systems or process architectures throw
-`PlatformNotSupportedException`.
+Native calls fail with `DllNotFoundException` when the package does not carry a
+native asset for the running platform, or when the OpenSSL 3 runtime libraries
+are missing.
 
 ## Verify an SNP attestation
 

@@ -10,7 +10,11 @@
     <PackageId>TeeAttestationVerification</PackageId>
     <Version>1.0.4</Version>
     <Authors>Microsoft</Authors>
+    <Company>Microsoft</Company>
+    <Copyright>Copyright (c) Microsoft. All rights reserved.</Copyright>
     <Description>Linux x64 .NET bindings for TEE attestation verification.</Description>
+    <PackageTags>TEE;Attestation;SEV-SNP;Confidential-Computing;Microsoft</PackageTags>
+    <PackageProjectUrl>https://github.com/microsoft/TEE-Attestation-Verification</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>

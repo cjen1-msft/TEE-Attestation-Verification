@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import argparse
 import glob
+import os
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
 import tomllib
-import xml.etree.ElementTree as ElementTree
 from collections.abc import Iterator
 from typing import Any
 
@@ -111,6 +113,38 @@ def check_rust_version_sync(root: pathlib.Path, expected_version: str) -> None:
                     )
 
 
+def dotnet_project_property(project: pathlib.Path, property_name: str) -> str:
+    with tempfile.TemporaryDirectory(prefix="tav-msbuild-") as temporary:
+        result_file = pathlib.Path(temporary) / "result.txt"
+        try:
+            subprocess.run(
+                [
+                    "dotnet",
+                    "msbuild",
+                    str(project),
+                    f"-getProperty:{property_name}",
+                    f"-getResultOutputFile:{result_file}",
+                    "-nologo",
+                ],
+                check=True,
+                capture_output=True,
+                env={**os.environ, "DOTNET_NOLOGO": "true"},
+                text=True,
+            )
+        except FileNotFoundError as error:
+            raise VersionSyncError("dotnet was not found") from error
+        except subprocess.CalledProcessError as error:
+            raise VersionSyncError(
+                f"Failed to evaluate {property_name} from {project}: "
+                f"{error.stderr.strip()}"
+            ) from error
+
+        value = result_file.read_text(encoding="utf-8").strip()
+        if not value:
+            raise VersionSyncError(f"{project}: {property_name} is empty")
+        return value
+
+
 def check_csharp_version_sync(root: pathlib.Path, expected_version: str) -> None:
     managed_manifest = (
         root
@@ -122,14 +156,7 @@ def check_csharp_version_sync(root: pathlib.Path, expected_version: str) -> None
     if not managed_manifest.is_file():
         raise VersionSyncError(f"Expected .NET project file not found: {managed_manifest}")
 
-    try:
-        managed_version = ElementTree.parse(managed_manifest).getroot().findtext(
-            "./PropertyGroup/Version"
-        )
-    except ElementTree.ParseError as error:
-        raise VersionSyncError(
-            f"Failed to parse {managed_manifest}: {error}"
-        ) from error
+    managed_version = dotnet_project_property(managed_manifest, "PackageVersion")
 
     if managed_version != expected_version:
         raise VersionSyncError(

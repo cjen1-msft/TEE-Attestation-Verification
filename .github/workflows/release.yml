@@ -146,14 +146,7 @@ jobs:
             echo "version: ${VERSION}"
             echo "commit: ${{ needs.prepare_release.outputs.commit_sha }}"
             echo
-            echo "## rustc"
-            rustc --version --verbose
-            echo
-            echo "## cargo"
-            cargo --version --verbose
-            echo
-            echo "## wasm-pack"
-            wasm-pack --version
+            scripts/capture-build-info.sh rust wasm
           } > release-artifacts/BUILD-INFO.txt
 
           cat release-artifacts/BUILD-INFO.txt
@@ -211,17 +204,7 @@ jobs:
             echo "version: ${VERSION}"
             echo "commit: ${{ needs.prepare_release.outputs.commit_sha }}"
             echo
-            echo "## rustc"
-            rustc --version --verbose
-            echo
-            echo "## cargo"
-            cargo --version --verbose
-            echo
-            echo "## dotnet"
-            dotnet --info
-            echo
-            echo "## openssl"
-            openssl version -a
+            scripts/capture-build-info.sh rust dotnet
           } > release-artifacts/DOTNET-BUILD-INFO.txt
 
           cat release-artifacts/DOTNET-BUILD-INFO.txt

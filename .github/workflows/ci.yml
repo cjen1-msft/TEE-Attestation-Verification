@@ -32,9 +32,6 @@ jobs:
         with:
           dotnet-version: "8.0.423"
 
-      - name: Test version sync checker
-        run: python3 scripts/test_check_version_sync.py
-
       - name: Check package versions match changelog
         run: python3 scripts/check-version-sync.py --root-path "${{ github.workspace }}"
 

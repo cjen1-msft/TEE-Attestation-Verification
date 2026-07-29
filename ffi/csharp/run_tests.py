@@ -14,6 +14,7 @@ import argparse
 import fcntl
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import uuid
@@ -33,6 +34,15 @@ TEST_PROJECT = (
 )
 NATIVE_ASSET = (
     "runtimes/linux-x64/native/libtee_attestation_verification_ffi.so"
+)
+EXPECTED_NATIVE_DEPENDENCIES = frozenset(
+    {
+        "ld-linux-x86-64.so.2",
+        "libc.so.6",
+        "libcrypto.so.3",
+        "libgcc_s.so.1",
+        "libssl.so.3",
+    }
 )
 LOCK_FILE = (
     pathlib.Path(tempfile.gettempdir())
@@ -71,17 +81,21 @@ def verify_package(package: pathlib.Path, native_library: pathlib.Path) -> None:
             raise RuntimeError("OpenSSL libraries must not be bundled in the package")
         native_library.write_bytes(archive.read(NATIVE_ASSET))
 
-    dependencies = subprocess.run(
-        ["readelf", "-d", str(native_library)],
+    dynamic_section = subprocess.run(
+        ["readelf", "--dynamic", "--wide", str(native_library)],
         check=True,
         capture_output=True,
+        env={**os.environ, "LC_ALL": "C"},
         text=True,
     ).stdout
-    for dependency in ("[libssl.so.3]", "[libcrypto.so.3]"):
-        if dependency not in dependencies:
-            raise RuntimeError(
-                f"{NATIVE_ASSET} does not declare the required {dependency[1:-1]}"
-            )
+    dependencies = frozenset(
+        re.findall(r"\(NEEDED\).*Shared library: \[([^]]+)]", dynamic_section)
+    )
+    if dependencies != EXPECTED_NATIVE_DEPENDENCIES:
+        raise RuntimeError(
+            f"{NATIVE_ASSET} dependencies differ: expected "
+            f"{sorted(EXPECTED_NATIVE_DEPENDENCIES)}, found {sorted(dependencies)}"
+        )
 
 
 def run_tests(configuration: str) -> None:

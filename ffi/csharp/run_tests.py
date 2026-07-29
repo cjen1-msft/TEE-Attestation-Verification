@@ -2,6 +2,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+"""Test the C# binding as a NuGet consumer.
+
+Pack the binding into a temporary feed, restore the separate test project from
+that package, and run the tests without rebuilding the binding from source.
+"""
+
 from __future__ import annotations
 
 import argparse

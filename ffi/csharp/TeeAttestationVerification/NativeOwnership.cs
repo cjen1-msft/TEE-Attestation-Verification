@@ -7,6 +7,8 @@ using System.Text;
 
 namespace TeeAttestationVerification;
 
+// Connects .NET disposal and finalization to the C ABI destructors for
+// Rust-owned objects.
 internal sealed class SafeErrorHandle : SafeHandleZeroOrMinusOneIsInvalid
 {
     internal SafeErrorHandle(IntPtr handle)
@@ -67,6 +69,8 @@ internal sealed class SafeCborValueHandle : SafeHandleZeroOrMinusOneIsInvalid
     }
 }
 
+// Translates native errors, owned buffers, and borrowed views into managed
+// exceptions and copies.
 internal static class NativeResult
 {
     internal const int MaximumInputLength = 1024 * 1024 * 1024;

@@ -27,7 +27,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check Cargo versions match changelog
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: "8.0.423"
+
+      - name: Check package versions match changelog
         run: python3 scripts/check-version-sync.py --root-path "${{ github.workspace }}"
 
   license-headers:

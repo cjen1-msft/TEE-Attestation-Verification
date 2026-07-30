@@ -95,8 +95,8 @@ jobs:
     needs: prepare_release
     uses: ./.github/workflows/ci-ffi.yml
 
-  package_wasm:
-    name: Package WASM artifacts
+  package:
+    name: Package release artifacts
     runs-on: ubuntu-22.04
     needs: prepare_release
     env:
@@ -118,6 +118,14 @@ jobs:
           rustup target add wasm32-unknown-unknown
           cargo install wasm-pack --version 0.13.1 --locked
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: "8.0.423"
+
+      - name: Install OpenSSL build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+
       - name: Build tav-wasm bundle with WebCrypto crypto
         shell: bash
         working-directory: ffi
@@ -135,40 +143,31 @@ jobs:
 
           tar -C ../dist -czf "../release-artifacts/tav-wasm-${VERSION}.tar.gz" tav-wasm
 
+      - name: Build and pack .NET package and native library
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet pack \
+            ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj \
+            --configuration Release \
+            -p:PackageVersion="${VERSION}" \
+            --output release-artifacts
+
       - name: Capture build toolchain info
         shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p release-artifacts
           {
-            echo "# Build toolchain used for TAV WASM release artifacts"
+            echo "# Build toolchain used for TAV release artifacts"
             echo "version: ${VERSION}"
             echo "commit: ${{ needs.prepare_release.outputs.commit_sha }}"
             echo
-            echo "## rustc"
-            rustc --version --verbose
-            echo
-            echo "## cargo"
-            cargo --version --verbose
-            echo
-            echo "## wasm-pack"
-            wasm-pack --version
+            scripts/capture-build-info.sh rust wasm dotnet
           } > release-artifacts/BUILD-INFO.txt
 
           cat release-artifacts/BUILD-INFO.txt
 
-      - name: Generate release artifact checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          (
-            cd release-artifacts
-            sha256sum "tav-wasm-${VERSION}.tar.gz" BUILD-INFO.txt > SHA256SUMS
-          )
-
-      - name: Upload WASM release artifacts
+      - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts
@@ -186,7 +185,7 @@ jobs:
       - ci-crypto
       - ci-demo
       - ci-ffi
-      - package_wasm
+      - package
     permissions:
       contents: write
     steps:
@@ -199,6 +198,18 @@ jobs:
         with:
           name: release-artifacts
           path: dist
+
+      - name: Generate release artifact checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd dist
+            find . -maxdepth 1 -type f -printf '%f\0' |
+              sort -z |
+              xargs -0 sha256sum > "${RUNNER_TEMP}/SHA256SUMS"
+          )
+          mv "${RUNNER_TEMP}/SHA256SUMS" dist/SHA256SUMS
 
       - name: Create draft GitHub release
         env:

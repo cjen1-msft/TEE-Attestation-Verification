@@ -30,7 +30,7 @@ public sealed class CaciPolicyDigests
                 "At least one CACI policy digest is required.",
                 nameof(digests));
         }
-        if (snapshot.Length > NativeResult.MaximumInputLength / DigestLength)
+        if (snapshot.Length > NativeInput.MaximumInputLength / DigestLength)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(digests),

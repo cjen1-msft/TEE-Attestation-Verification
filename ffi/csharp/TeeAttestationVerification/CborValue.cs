@@ -41,7 +41,7 @@ public sealed class CborValue : IDisposable
 
         IntPtr error = NativeMethods.CborLength(_handle, out nuint nativeLength);
         NativeResult.ThrowIfError(error);
-        length = NativeResult.ToManagedLength(nativeLength);
+        length = NativeMemory.ToManagedLength(nativeLength);
         return true;
     }
 
@@ -51,7 +51,7 @@ public sealed class CborValue : IDisposable
     /// <exception cref="VerifyException">The input is not valid supported CBOR.</exception>
     public static unsafe CborValue FromBytes(ReadOnlyMemory<byte> bytes)
     {
-        byte[] snapshot = NativeResult.Snapshot(bytes, nameof(bytes));
+        byte[] snapshot = NativeInput.Snapshot(bytes, nameof(bytes));
         fixed (byte* bytesPointer = snapshot)
         {
             IntPtr error = NativeMethods.CborFromBytes(
@@ -72,7 +72,7 @@ public sealed class CborValue : IDisposable
             throw new InvalidOperationException("Native CBOR serialization returned a null buffer.");
         }
 
-        return NativeResult.CopyOwnedBytes(bytes);
+        return NativeMemory.CopyOwnedBytes(bytes);
     }
 
     /// <summary>Reads this value as a signed integer.</summary>
@@ -105,7 +105,7 @@ public sealed class CborValue : IDisposable
                 IntPtr error = NativeMethods.CborBytes(
                     _handle, out IntPtr data, out nuint length);
                 NativeResult.ThrowIfError(error);
-                return NativeResult.CopyBytes(data, length);
+                return NativeMemory.CopyBytes(data, length);
             }
             finally
             {
@@ -125,7 +125,7 @@ public sealed class CborValue : IDisposable
                 IntPtr error = NativeMethods.CborText(
                     _handle, out IntPtr text, out nuint length);
                 NativeResult.ThrowIfError(error);
-                return NativeResult.CopyUtf8(text, length);
+                return NativeMemory.CopyUtf8(text, length);
             }
             finally
             {
@@ -181,7 +181,7 @@ public sealed class CborValue : IDisposable
     /// <exception cref="VerifyException">This value is not a map or the key is absent.</exception>
     public unsafe CborValue MapAt(string key)
     {
-        byte[] utf8 = NativeResult.Utf8(key, nameof(key));
+        byte[] utf8 = NativeInput.Utf8(key, nameof(key));
         fixed (byte* keyPointer = utf8)
         {
             IntPtr error = NativeMethods.CborMapAtText(
@@ -229,7 +229,7 @@ public sealed class CborValue : IDisposable
     /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
     public unsafe bool TryGetValue(string key, out CborValue? value)
     {
-        byte[] utf8 = NativeResult.Utf8(key, nameof(key));
+        byte[] utf8 = NativeInput.Utf8(key, nameof(key));
         fixed (byte* keyPointer = utf8)
         {
             IntPtr error = NativeMethods.CborMapHasText(

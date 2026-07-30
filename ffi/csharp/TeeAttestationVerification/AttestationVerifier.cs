@@ -12,7 +12,7 @@ public static class AttestationVerifier
 {
     private const int TcbVersionLength = 8;
     private const int MaximumMinimumTcbEntries =
-        NativeResult.MaximumInputLength / TcbVersionLength;
+        NativeInput.MaximumInputLength / TcbVersionLength;
 
     private static readonly Regex PemCertificatePattern = new(
         "-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----",
@@ -75,10 +75,10 @@ public static class AttestationVerifier
         string askPem,
         string vcekPem)
     {
-        byte[] report = NativeResult.Snapshot(reportBytes, nameof(reportBytes));
-        byte[] ark = NativeResult.Utf8(arkPem, nameof(arkPem));
-        byte[] ask = NativeResult.Utf8(askPem, nameof(askPem));
-        byte[] vcek = NativeResult.Utf8(vcekPem, nameof(vcekPem));
+        byte[] report = NativeInput.Snapshot(reportBytes, nameof(reportBytes));
+        byte[] ark = NativeInput.Utf8(arkPem, nameof(arkPem));
+        byte[] ask = NativeInput.Utf8(askPem, nameof(askPem));
+        byte[] vcek = NativeInput.Utf8(vcekPem, nameof(vcekPem));
         fixed (byte* reportPointer = report)
         fixed (byte* arkPointer = ark)
         fixed (byte* askPointer = ask)
@@ -117,9 +117,9 @@ public static class AttestationVerifier
         ReadOnlyMemory<byte> uvmEndorsement,
         string trustedDidX509)
     {
-        byte[] endorsement = NativeResult.Snapshot(
+        byte[] endorsement = NativeInput.Snapshot(
             uvmEndorsement, nameof(uvmEndorsement));
-        byte[] trustedDid = NativeResult.Utf8(trustedDidX509, nameof(trustedDidX509));
+        byte[] trustedDid = NativeInput.Utf8(trustedDidX509, nameof(trustedDidX509));
         unsafe
         {
             fixed (byte* endorsementPointer = endorsement)
@@ -172,7 +172,7 @@ public static class AttestationVerifier
         ArgumentNullException.ThrowIfNull(uvm);
         (uint[] cpuids, byte[] tcbValues) = SnapshotMinimumTcb(minimumTcb);
         ReadOnlySpan<byte> policies = trustedCaciExecutionPolicies.Bytes;
-        byte[] feed = NativeResult.Utf8(uvmFeed, nameof(uvmFeed));
+        byte[] feed = NativeInput.Utf8(uvmFeed, nameof(uvmFeed));
 
         unsafe
         {
@@ -200,7 +200,7 @@ public static class AttestationVerifier
                         "Native CACI verification returned a null report-data buffer.");
                 }
 
-                return NativeResult.CopyOwnedBytes(reportData);
+                return NativeMemory.CopyOwnedBytes(reportData);
             }
         }
     }

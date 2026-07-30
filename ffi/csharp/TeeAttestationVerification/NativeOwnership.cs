@@ -69,12 +69,9 @@ internal sealed class SafeCborValueHandle : SafeHandleZeroOrMinusOneIsInvalid
     }
 }
 
-// Translates native errors, owned buffers, and borrowed views into managed
-// exceptions and copies.
+// Translates native errors into managed exceptions.
 internal static class NativeResult
 {
-    internal const int MaximumInputLength = 1024 * 1024 * 1024;
-
     internal static void ThrowIfError(IntPtr error)
     {
         if (error == IntPtr.Zero)
@@ -88,7 +85,11 @@ internal static class NativeResult
             ?? "native verification failed without an error message";
         throw new VerifyException(code, message);
     }
+}
 
+// Copies owned buffers and borrowed views from native into managed memory.
+internal static class NativeMemory
+{
     internal static byte[] CopyOwnedBytes(IntPtr buffer)
     {
         using SafeByteBufferHandle handle = new(buffer);
@@ -128,6 +129,22 @@ internal static class NativeResult
             throwOnInvalidBytes: true).GetString(bytes);
     }
 
+    internal static int ToManagedLength(nuint length)
+    {
+        if (length > int.MaxValue)
+        {
+            throw new InvalidOperationException("Native length exceeds Int32.MaxValue.");
+        }
+
+        return checked((int)length);
+    }
+}
+
+// Validates and snapshots managed inputs before native calls.
+internal static class NativeInput
+{
+    internal const int MaximumInputLength = 1024 * 1024 * 1024;
+
     internal static byte[] Snapshot(ReadOnlyMemory<byte> input, string name)
     {
         ValidateLength(input.Length, name);
@@ -142,17 +159,7 @@ internal static class NativeResult
         return Encoding.UTF8.GetBytes(input);
     }
 
-    internal static int ToManagedLength(nuint length)
-    {
-        if (length > int.MaxValue)
-        {
-            throw new InvalidOperationException("Native length exceeds Int32.MaxValue.");
-        }
-
-        return checked((int)length);
-    }
-
-    internal static void ValidateLength(int length, string name)
+    private static void ValidateLength(int length, string name)
     {
         if (length > MaximumInputLength)
         {
@@ -161,5 +168,4 @@ internal static class NativeResult
                 $"Input exceeds the {MaximumInputLength}-byte maximum.");
         }
     }
-
 }

@@ -134,7 +134,7 @@ public sealed class SnpAttestationReport : IDisposable
             try
             {
                 accessor(_handle, out IntPtr data, out nuint length);
-                return NativeResult.CopyBytes(data, length);
+                return NativeMemory.CopyBytes(data, length);
             }
             finally
             {

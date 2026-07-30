@@ -17,12 +17,7 @@ public sealed class CaciTests
             input.UvmEndorsement, FixtureData.TrustedDidX509);
         using CoseSign1 sign1 = uvm.AsCoseSign1();
         Assert.NotEmpty(sign1.GetPayload());
-        byte[][] sourcePolicies = input.Policies
-            .Select(policy => (byte[])policy.Clone())
-            .ToArray();
-        CaciPolicyDigests trustedPolicies = PolicyDigests(sourcePolicies);
-        Assert.Equal(sourcePolicies.Length, trustedPolicies.Count);
-        sourcePolicies[0][0] ^= 0xff;
+        ReadOnlyMemory<byte>[] trustedPolicies = PolicyDigests(input.Policies);
 
         byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
             attestation,
@@ -69,16 +64,22 @@ public sealed class CaciTests
             AttestationVerifier.VerifyCaciAttestation(
                 attestation,
                 input.MinimumTcb,
-                new CaciPolicyDigests([untrustedPolicy]),
+                PolicyDigests([untrustedPolicy]),
                 uvm,
                 input.UvmFeed,
                 input.MinimumSvn));
         Assert.Equal(ErrorCode.CaciPolicy, policyError.Code);
 
-        Assert.Throws<ArgumentException>(() => new CaciPolicyDigests([]));
-        Assert.Throws<ArgumentException>(() => new CaciPolicyDigests([new byte[31]]));
+        Assert.Throws<ArgumentException>(() =>
+            AttestationVerifier.VerifyCaciAttestation(
+                attestation, input.MinimumTcb, [],
+                uvm, input.UvmFeed, input.MinimumSvn));
+        Assert.Throws<ArgumentException>(() =>
+            AttestationVerifier.VerifyCaciAttestation(
+                attestation, input.MinimumTcb, PolicyDigests([new byte[31]]),
+                uvm, input.UvmFeed, input.MinimumSvn));
 
-        CaciPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
+        ReadOnlyMemory<byte>[] trustedPolicies = PolicyDigests(input.Policies);
         ArgumentException invalidLength = Assert.Throws<ArgumentException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
                 attestation, [(0x00a00f11u, new ReadOnlyMemory<byte>(new byte[7]))],
@@ -108,7 +109,7 @@ public sealed class CaciTests
                 input.Report, input.Ark, input.Ask, input.Vcek);
         using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
             input.UvmEndorsement, FixtureData.TrustedDidX509);
-        CaciPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
+        ReadOnlyMemory<byte>[] trustedPolicies = PolicyDigests(input.Policies);
 
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
@@ -124,8 +125,8 @@ public sealed class CaciTests
         Assert.Contains("Duplicate minimum TCB CPUID 0x00a00f11", error.Message);
     }
 
-    private static CaciPolicyDigests PolicyDigests(byte[][] policies) =>
-        new(policies.Select(bytes => (ReadOnlyMemory<byte>)bytes));
+    private static ReadOnlyMemory<byte>[] PolicyDigests(byte[][] policies) =>
+        policies.Select(bytes => (ReadOnlyMemory<byte>)bytes).ToArray();
 
     private sealed class OversizedMinimumTcbCollection :
         IReadOnlyCollection<(uint Cpuid, ReadOnlyMemory<byte> Tcb)>

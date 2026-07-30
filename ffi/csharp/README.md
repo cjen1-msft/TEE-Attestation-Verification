@@ -56,12 +56,11 @@ try
     using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
         uvmEndorsement,
         trustedDidX509);
-    CaciPolicyDigests trustedPolicies = new(trustedPolicyDigests);
 
     byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
         report,
         minimumTcb,
-        trustedPolicies,
+        trustedPolicyDigests,
         uvm,
         uvmFeed,
         minimumSvn);
@@ -91,12 +90,11 @@ feed, and minimum SVN from relying-party configuration, not from the attester.
   shape and format failures use standard argument or format exceptions.
 - Verification is synchronous. Inputs are copied before entering native code.
 
-`CaciPolicyDigests` validates, copies, and flattens trusted 32-byte CACI policy
-digests once so the immutable collection can be reused. `VerifyCaciAttestation`
-accepts minimum-TCB policy as a sequence of `(uint Cpuid, ReadOnlyMemory<byte>
-Tcb)` pairs. Each TCB must contain exactly eight bytes, and CPUIDs must be
-unique. The raw byte layout is `[boot loader, TEE, reserved x4, SNP, microcode]`
-for Milan/Genoa and `[FMC, boot loader, TEE, SNP, reserved x3, microcode]` for
+`VerifyCaciAttestation` validates, copies, and flattens trusted 32-byte CACI
+policy digests. It accepts minimum-TCB policy as a sequence of `(uint Cpuid,
+ReadOnlyMemory<byte> Tcb)` pairs. Each TCB must contain exactly eight bytes, and
+CPUIDs must be unique. The raw byte layout is
+`[boot loader, TEE, reserved x4, SNP, microcode]` for Milan/Genoa and `[FMC, boot loader, TEE, SNP, reserved x3, microcode]` for
 Turin. Pass an empty sequence for no minimum.
 
 The package includes XML API documentation for IDE hover and IntelliSense.

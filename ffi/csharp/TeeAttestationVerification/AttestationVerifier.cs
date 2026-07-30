@@ -11,8 +11,11 @@ namespace TeeAttestationVerification;
 public static class AttestationVerifier
 {
     private const int TcbVersionLength = 8;
+    private const int PolicyDigestLength = 32;
     private const int MaximumMinimumTcbEntries =
         NativeInput.MaximumInputLength / TcbVersionLength;
+    private const int MaximumPolicyDigestEntries =
+        NativeInput.MaximumInputLength / PolicyDigestLength;
 
     private static readonly Regex PemCertificatePattern = new(
         "-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----",
@@ -148,20 +151,24 @@ public static class AttestationVerifier
     /// CPUIDs are rejected. The sequence and TCB bytes are copied before entering
     /// native code.
     /// </param>
-    /// <param name="trustedCaciExecutionPolicies">Trusted CACI execution-policy digests.</param>
+    /// <param name="trustedCaciExecutionPolicies">
+    /// One or more trusted 32-byte CACI execution-policy digests. The sequence
+    /// and digest bytes are copied before entering native code.
+    /// </param>
     /// <param name="uvm">A value returned by <see cref="VerifyUvmEndorsement"/>.</param>
     /// <param name="uvmFeed">The required UVM feed identifier.</param>
     /// <param name="minimumSvn">The minimum accepted UVM security version number.</param>
     /// <returns>A copy of the verified 64-byte SNP report data.</returns>
     /// <exception cref="ArgumentNullException">A required reference argument is null.</exception>
     /// <exception cref="ArgumentException">
-    /// A TCB value is not eight bytes or a CPUID occurs more than once.
+    /// A TCB value is not eight bytes, a CPUID occurs more than once, the policy
+    /// digest collection is empty, or a policy digest is not 32 bytes.
     /// </exception>
     /// <exception cref="VerifyException">Native policy verification fails.</exception>
     public static byte[] VerifyCaciAttestation(
         SnpAttestationReport attestation,
         IEnumerable<(uint Cpuid, ReadOnlyMemory<byte> Tcb)> minimumTcb,
-        CaciPolicyDigests trustedCaciExecutionPolicies,
+        IEnumerable<ReadOnlyMemory<byte>> trustedCaciExecutionPolicies,
         CborValue uvm,
         string uvmFeed,
         ulong minimumSvn)
@@ -171,7 +178,8 @@ public static class AttestationVerifier
         ArgumentNullException.ThrowIfNull(trustedCaciExecutionPolicies);
         ArgumentNullException.ThrowIfNull(uvm);
         (uint[] cpuids, byte[] tcbValues) = SnapshotMinimumTcb(minimumTcb);
-        ReadOnlySpan<byte> policies = trustedCaciExecutionPolicies.Bytes;
+        (byte[] policies, int policyCount) =
+            SnapshotPolicyDigests(trustedCaciExecutionPolicies);
         byte[] feed = NativeInput.Utf8(uvmFeed, nameof(uvmFeed));
 
         unsafe
@@ -187,7 +195,7 @@ public static class AttestationVerifier
                     (IntPtr)tcbValuesPointer,
                     (nuint)cpuids.Length,
                     (IntPtr)policiesPointer,
-                    (nuint)trustedCaciExecutionPolicies.Count,
+                    (nuint)policyCount,
                     uvm.Handle,
                     (IntPtr)feedPointer,
                     (nuint)feed.Length,
@@ -203,6 +211,57 @@ public static class AttestationVerifier
                 return NativeMemory.CopyOwnedBytes(reportData);
             }
         }
+    }
+
+    private static (byte[] Values, int Count) SnapshotPolicyDigests(
+        IEnumerable<ReadOnlyMemory<byte>> trustedCaciExecutionPolicies)
+    {
+        bool hasCount = trustedCaciExecutionPolicies.TryGetNonEnumeratedCount(
+            out int count);
+        if (!hasCount &&
+            trustedCaciExecutionPolicies is IReadOnlyCollection<ReadOnlyMemory<byte>> collection)
+        {
+            count = collection.Count;
+            hasCount = true;
+        }
+
+        if (hasCount && count > MaximumPolicyDigestEntries)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(trustedCaciExecutionPolicies),
+                "CACI policy digests exceed the maximum input size.");
+        }
+
+        ReadOnlyMemory<byte>[] digests = trustedCaciExecutionPolicies.ToArray();
+        if (digests.Length == 0)
+        {
+            throw new ArgumentException(
+                "At least one CACI policy digest is required.",
+                nameof(trustedCaciExecutionPolicies));
+        }
+        if (digests.Length > MaximumPolicyDigestEntries)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(trustedCaciExecutionPolicies),
+                "CACI policy digests exceed the maximum input size.");
+        }
+
+        byte[] values = new byte[digests.Length * PolicyDigestLength];
+        for (int index = 0; index < digests.Length; index++)
+        {
+            ReadOnlyMemory<byte> digest = digests[index];
+            if (digest.Length != PolicyDigestLength)
+            {
+                throw new ArgumentException(
+                    $"CACI policy digest at index {index} must be {PolicyDigestLength} bytes, got {digest.Length}.",
+                    nameof(trustedCaciExecutionPolicies));
+            }
+
+            digest.Span.CopyTo(
+                values.AsSpan(index * PolicyDigestLength, PolicyDigestLength));
+        }
+
+        return (values, digests.Length);
     }
 
     private static (uint[] Cpuids, byte[] Values) SnapshotMinimumTcb(

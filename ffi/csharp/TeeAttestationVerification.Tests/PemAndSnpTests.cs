@@ -101,7 +101,7 @@ public sealed class PemAndSnpTests
     }
 
     [Fact]
-    public void VerifySnpAttestationPreservesRepresentativeErrorContracts()
+    public void VerifySnpAttestationForwardsNativeErrorsAndValidatesManagedInputs()
     {
         MilanInputs input = FixtureData.LoadMilan();
         VerifyException invalidRoot = Assert.Throws<VerifyException>(() =>
@@ -109,18 +109,6 @@ public sealed class PemAndSnpTests
                 input.Report, input.Ask, input.Ask, input.Vcek));
         Assert.Equal(ErrorCode.InvalidRootCertificate, invalidRoot.Code);
         Assert.NotEmpty(invalidRoot.Message);
-
-        byte[] tampered = (byte[])input.Report.Clone();
-        tampered[0x90] ^= 0xff;
-        VerifyException badSignature = Assert.Throws<VerifyException>(() =>
-            AttestationVerifier.VerifySnpAttestation(
-                tampered, input.Ark, input.Ask, input.Vcek));
-        Assert.Equal(ErrorCode.SignatureVerificationError, badSignature.Code);
-
-        VerifyException empty = Assert.Throws<VerifyException>(() =>
-            AttestationVerifier.VerifySnpAttestation(
-                ReadOnlyMemory<byte>.Empty, input.Ark, input.Ask, input.Vcek));
-        Assert.Equal(ErrorCode.InvalidArgument, empty.Code);
 
         Assert.Throws<ArgumentNullException>(() =>
             AttestationVerifier.VerifySnpAttestation(

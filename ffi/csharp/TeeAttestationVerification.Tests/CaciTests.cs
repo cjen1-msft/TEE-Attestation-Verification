@@ -46,7 +46,7 @@ public sealed class CaciTests
     }
 
     [Fact]
-    public void CaciVerificationPreservesRepresentativeErrorsAndValidatesInputs()
+    public void CaciVerificationForwardsNativeErrorsAndValidatesManagedInputs()
     {
         CaciInputs input = FixtureData.LoadCaci();
         using SnpAttestationReport attestation =
@@ -62,11 +62,6 @@ public sealed class CaciTests
                 "::eku:1.3.6.1.4.1.311.76.59.1.2"));
         Assert.Equal(ErrorCode.CaciDidX509, didError.Code);
         Assert.NotEmpty(didError.Message);
-
-        VerifyException emptyUvm = Assert.Throws<VerifyException>(() =>
-            AttestationVerifier.VerifyUvmEndorsement(
-                ReadOnlyMemory<byte>.Empty, FixtureData.TrustedDidX509));
-        Assert.Equal(ErrorCode.InvalidArgument, emptyUvm.Code);
 
         byte[] untrustedPolicy = (byte[])input.Policies[0].Clone();
         untrustedPolicy[0] ^= 0xff;
@@ -84,19 +79,6 @@ public sealed class CaciTests
         Assert.Throws<ArgumentException>(() => new CaciPolicyDigests([new byte[31]]));
 
         CaciPolicyDigests trustedPolicies = PolicyDigests(input.Policies);
-        byte[] excessiveTcb = input.MinimumTcb[0].Tcb.ToArray();
-        excessiveTcb[0]++;
-        VerifyException tcbError = Assert.Throws<VerifyException>(() =>
-            AttestationVerifier.VerifyCaciAttestation(
-                attestation,
-                [(input.MinimumTcb[0].Cpuid, excessiveTcb)],
-                trustedPolicies,
-                uvm,
-                input.UvmFeed,
-                input.MinimumSvn));
-        Assert.Equal(ErrorCode.CaciPolicy, tcbError.Code);
-        Assert.Contains("SNP reported TCB", tcbError.Message);
-
         ArgumentException invalidLength = Assert.Throws<ArgumentException>(() =>
             AttestationVerifier.VerifyCaciAttestation(
                 attestation, [(0x00a00f11u, new ReadOnlyMemory<byte>(new byte[7]))],

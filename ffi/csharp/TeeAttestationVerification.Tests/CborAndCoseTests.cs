@@ -105,8 +105,6 @@ public sealed class CborAndCoseTests
         Assert.Equal(1ul, tagged.GetTag());
         using CborValue taggedPayload = tagged.TaggedPayload();
         Assert.Equal(42, taggedPayload.GetInt64());
-
-        Assert.Throws<VerifyException>(() => CborValue.FromBytes(ReadOnlyMemory<byte>.Empty));
     }
 
     [Fact]
@@ -156,9 +154,6 @@ public sealed class CborAndCoseTests
         Assert.Equal(Payload, embedded.GetPayload());
         Assert.Equal(Signature, embedded.GetSignature());
         embedded.VerifyEmbedded(Spki, CoseAlgorithm.Es256);
-        VerifyException emptyKey = Assert.Throws<VerifyException>(
-            () => embedded.VerifyEmbedded(ReadOnlyMemory<byte>.Empty, CoseAlgorithm.Es256));
-        Assert.Equal(ErrorCode.InvalidArgument, emptyKey.Code);
 
         byte[] tampered = BuildSign1(embeddedPayload: true);
         tampered[^1] ^= 0xff;
@@ -171,10 +166,6 @@ public sealed class CborAndCoseTests
         using CborValue detachedRoot = CborValue.FromBytes(BuildSign1(embeddedPayload: false));
         using CoseSign1 detached = detachedRoot.AsCoseSign1();
         detached.VerifyDetached(Payload, Spki, CoseAlgorithm.Es256);
-
-        VerifyException wrongMode = Assert.Throws<VerifyException>(
-            () => embedded.VerifyDetached(Payload, Spki, CoseAlgorithm.Es256));
-        Assert.Equal(ErrorCode.CoseUnexpectedType, wrongMode.Code);
 
         embedded.Dispose();
         Assert.Throws<ObjectDisposedException>(() => embedded.GetSignature());

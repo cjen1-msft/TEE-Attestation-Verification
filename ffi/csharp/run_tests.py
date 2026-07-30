@@ -99,14 +99,12 @@ def verify_package(package: pathlib.Path, native_library: pathlib.Path) -> None:
 
 
 def run_tests(configuration: str) -> None:
-    jobs = max(1, (os.cpu_count() or 1) // 2)
     version = test_package_version()
     with tempfile.TemporaryDirectory(prefix="tav-csharp-tests-") as temporary:
         temp = pathlib.Path(temporary)
         feed = temp / "feed"
         feed.mkdir()
         env = os.environ.copy()
-        env["CARGO_BUILD_JOBS"] = str(jobs)
         env["NUGET_PACKAGES"] = str(temp / "packages")
 
         run(
@@ -116,7 +114,6 @@ def run_tests(configuration: str) -> None:
                 str(PACKAGE_PROJECT),
                 "--configuration",
                 configuration,
-                f"-m:{jobs}",
                 "--output",
                 str(feed),
                 f"-p:PackageVersion={version}",
@@ -157,7 +154,6 @@ def run_tests(configuration: str) -> None:
                 "--configuration",
                 configuration,
                 "--no-restore",
-                f"-m:{jobs}",
                 *common_properties,
             ],
             env=env,

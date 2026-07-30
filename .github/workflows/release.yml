@@ -186,13 +186,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          jobs=$(( $(nproc) / 2 ))
           mkdir -p release-artifacts
-          CARGO_BUILD_JOBS="${jobs}" dotnet pack \
+          dotnet pack \
             ffi/csharp/TeeAttestationVerification/TeeAttestationVerification.csproj \
             --configuration Release \
             -p:PackageVersion="${VERSION}" \
-            -m:"${jobs}" \
             --output release-artifacts
 
       - name: Capture build toolchain info

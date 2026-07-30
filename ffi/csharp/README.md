@@ -93,11 +93,9 @@ The MSBuild project invokes Cargo with `crypto_openssl` for every build.
 To create a release package:
 
 ```bash
-jobs=$(( $(nproc) / 2 ))
-CARGO_BUILD_JOBS="$jobs" dotnet pack \
+dotnet pack \
   TeeAttestationVerification/TeeAttestationVerification.csproj \
-  --configuration Release \
-  -m:"$jobs"
+  --configuration Release
 ```
 
 The native asset is packaged at

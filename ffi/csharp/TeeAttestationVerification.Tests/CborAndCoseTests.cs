@@ -32,8 +32,6 @@ public sealed class CborAndCoseTests
         using CborValue integer = CborValue.FromBytes(new byte[] { 0x01 });
         Assert.Equal(CborKind.Int, integer.Kind);
         Assert.Equal(1, integer.GetInt64());
-        Assert.False(integer.TryGetLength(out int scalarLength));
-        Assert.Equal(0, scalarLength);
         Assert.Equal(new byte[] { 0x01 }, integer.ToBytes());
         VerifyException typeError = Assert.Throws<VerifyException>(() => integer.GetTextString());
         Assert.Equal(ErrorCode.CoseUnexpectedType, typeError.Code);
@@ -52,8 +50,7 @@ public sealed class CborAndCoseTests
 
         using CborValue array = CborValue.FromBytes(new byte[] { 0x82, 0x01, 0x61, 0x61 });
         Assert.Equal(CborKind.Array, array.Kind);
-        Assert.True(array.TryGetLength(out int arrayLength));
-        Assert.Equal(2, arrayLength);
+        Assert.Equal(2, array.GetLength());
         using CborValue first = array.ArrayAt(0);
         using CborValue second = array.ArrayAt(1);
         Assert.Equal(1, first.GetInt64());
@@ -63,8 +60,7 @@ public sealed class CborAndCoseTests
             new byte[] { 0xa3, 0x01, 0x63, (byte)'o', (byte)'n', (byte)'e',
                 0x61, (byte)'k', 0x18, 0x2a, 0x41, 0xaa, 0xf5 });
         Assert.Equal(CborKind.Map, map.Kind);
-        Assert.True(map.TryGetLength(out int mapLength));
-        Assert.Equal(3, mapLength);
+        Assert.Equal(3, map.GetLength());
         using CborValue one = map.MapAt(1L);
         using CborValue fortyTwo = map.MapAt("k");
         using CborValue key = CborValue.FromBytes(new byte[] { 0x41, 0xaa });

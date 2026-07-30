@@ -26,23 +26,13 @@ public sealed class CborValue : IDisposable
     /// <summary>Gets the CBOR major type.</summary>
     public CborKind Kind => (CborKind)NativeMethods.CborKind(_handle);
 
-    /// <summary>Attempts to get the element count of an array or map.</summary>
-    /// <param name="length">
-    /// The element count when this value is an array or map; otherwise zero.
-    /// </param>
-    /// <returns><see langword="true"/> for an array or map; otherwise <see langword="false"/>.</returns>
-    public bool TryGetLength(out int length)
+    /// <summary>Gets the element count of an array or map.</summary>
+    /// <exception cref="VerifyException">This value is not an array or map.</exception>
+    public int GetLength()
     {
-        if (Kind is not (CborKind.Array or CborKind.Map))
-        {
-            length = 0;
-            return false;
-        }
-
         IntPtr error = NativeMethods.CborLength(_handle, out nuint nativeLength);
         NativeResult.ThrowIfError(error);
-        length = NativeMemory.ToManagedLength(nativeLength);
-        return true;
+        return NativeMemory.ToManagedLength(nativeLength);
     }
 
     /// <summary>Parses an encoded CBOR document.</summary>

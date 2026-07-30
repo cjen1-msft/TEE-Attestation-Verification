@@ -1,9 +1,7 @@
 # TeeAttestationVerification for .NET
 
-Linux x64 .NET 8 bindings for the repository's native TEE attestation
-verification C ABI. The NuGet package includes the managed assembly and the
-OpenSSL-backed native library. Consumers must provide the OpenSSL 3 runtime
-libraries (`libssl.so.3` and `libcrypto.so.3`).
+Linux x64 .NET 8 bindings for verifying SNP and CACI attestations through the
+repository's native C ABI.
 
 ## Install
 
@@ -18,10 +16,6 @@ The runtime environment must provide:
 - a Linux x64 process;
 - glibc 2.35 or newer;
 - OpenSSL 3 (`libssl.so.3` and `libcrypto.so.3`).
-
-Native calls fail with `DllNotFoundException` when the package does not carry a
-native asset for the running platform, or when the OpenSSL 3 runtime libraries
-are missing.
 
 ## Verify a CACI attestation
 
@@ -47,13 +41,12 @@ ulong minimumSvn = ulong.Parse(File.ReadAllText("minimum-svn.txt"));
 
 try
 {
-    using SnpAttestationReport report =
-        AttestationVerifier.VerifySnpAttestation(
-            reportBytes,
-            arkPem,
-            askPem,
-            vcekPem);
-    using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
+    SnpAttestationReport report = AttestationVerifier.VerifySnpAttestation(
+        reportBytes,
+        arkPem,
+        askPem,
+        vcekPem);
+    CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
         uvmEndorsement,
         trustedDidX509);
 
@@ -79,25 +72,18 @@ catch (VerifyException error)
 verified 64-byte report data. Load the trusted DID, policy digests, minimum TCB,
 feed, and minimum SVN from relying-party configuration, not from the attester.
 
+Native calls fail with `DllNotFoundException` when the package does not carry a
+native asset for the running platform, or when the OpenSSL 3 runtime libraries
+are missing.
+
 ## Ownership and errors
 
-- `SnpAttestationReport`, `CborValue`, and `CoseSign1` own native handles and
-  implement `IDisposable`. Dispose every returned object.
-- CBOR navigation and COSE validation return independently owned views; parents
-  and children may be disposed in any order.
-- Byte-returning methods return managed copies.
-- Native failures become `VerifyException` with a stable `ErrorCode`. Managed
-  shape and format failures use standard argument or format exceptions.
-- Verification is synchronous. Inputs are copied before entering native code.
-
-`VerifyCaciAttestation` validates, copies, and flattens trusted 32-byte CACI
-policy digests. It accepts minimum-TCB policy as a sequence of `(uint Cpuid,
-ReadOnlyMemory<byte> Tcb)` pairs. Each TCB must contain exactly eight bytes, and
-CPUIDs must be unique. The raw byte layout is
-`[boot loader, TEE, reserved x4, SNP, microcode]` for Milan/Genoa and `[FMC, boot loader, TEE, SNP, reserved x3, microcode]` for
-Turin. Pass an empty sequence for no minimum.
-
-The package includes XML API documentation for IDE hover and IntelliSense.
+All passed values are snapshotted before a synchronous native call, and all
+returned values are managed copies or managed wrappers. Native resources held by
+managed wrappers are reclaimed by garbage collection; `SnpAttestationReport`,
+`CborValue`, and `CoseSign1` also implement `IDisposable` for faster release.
+Native failures become `VerifyException` with a stable `ErrorCode`; managed input
+errors use standard .NET exceptions.
 
 ## Build and test from source
 

@@ -18,6 +18,7 @@ and returning authenticated report claims to callers.
 | `ffi/` | `tee-attestation-verification-ffi` | Native C ABI, WebAssembly bindings, and a Linux x64 .NET binding and NuGet package for the Rust domain crates. |
 | `demos/web-verify-kernel/` | n/a | Browser demo verifying an SNP attestation using the WASM bindings. |
 | `demos/caci-attestation-verify/` | n/a | Browser demo verifying an SNP CACI attestation using the WASM bindings. |
+| `demos/caci-csharp/` | n/a | .NET demo verifying an SNP CACI attestation using the packaged C# binding. |
 
 Read the crate-specific docs for API details:
 

@@ -72,7 +72,7 @@ public static class AttestationVerifier
     /// <param name="vcekPem">The VCEK leaf certificate in PEM form.</param>
     /// <returns>An owned verified report. Dispose it after use.</returns>
     /// <exception cref="VerifyException">Native parsing or verification fails.</exception>
-    public static unsafe SnpAttestationReport VerifySnpAttestation(
+    public static SnpAttestationReport VerifySnpAttestation(
         ReadOnlyMemory<byte> reportBytes,
         string arkPem,
         string askPem,
@@ -82,23 +82,26 @@ public static class AttestationVerifier
         byte[] ark = NativeInput.Utf8(arkPem, nameof(arkPem));
         byte[] ask = NativeInput.Utf8(askPem, nameof(askPem));
         byte[] vcek = NativeInput.Utf8(vcekPem, nameof(vcekPem));
-        fixed (byte* reportPointer = report)
-        fixed (byte* arkPointer = ark)
-        fixed (byte* askPointer = ask)
-        fixed (byte* vcekPointer = vcek)
+        unsafe
         {
-            IntPtr error = NativeMethods.VerifySnpAttestation(
-                (IntPtr)reportPointer,
-                (nuint)report.Length,
-                (IntPtr)arkPointer,
-                (nuint)ark.Length,
-                (IntPtr)askPointer,
-                (nuint)ask.Length,
-                (IntPtr)vcekPointer,
-                (nuint)vcek.Length,
-                out IntPtr verifiedReport);
-            NativeResult.ThrowIfError(error);
-            return new SnpAttestationReport(verifiedReport);
+            fixed (byte* reportPointer = report)
+            fixed (byte* arkPointer = ark)
+            fixed (byte* askPointer = ask)
+            fixed (byte* vcekPointer = vcek)
+            {
+                IntPtr error = NativeMethods.VerifySnpAttestation(
+                    (IntPtr)reportPointer,
+                    (nuint)report.Length,
+                    (IntPtr)arkPointer,
+                    (nuint)ark.Length,
+                    (IntPtr)askPointer,
+                    (nuint)ask.Length,
+                    (IntPtr)vcekPointer,
+                    (nuint)vcek.Length,
+                    out IntPtr verifiedReport);
+                NativeResult.ThrowIfError(error);
+                return new SnpAttestationReport(verifiedReport);
+            }
         }
     }
 

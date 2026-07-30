@@ -6,11 +6,11 @@
 
 ### Added
 
-- Linux x64 .NET bindings and OpenSSL-backed NuGet packaging over the C FFI.
+- Linux x64 .NET bindings and OpenSSL-backed NuGet packaging over the C FFI. (#88)
 
 ### Changed
 
-- Release artifacts now include the Linux x64 .NET package.
+- Release artifacts now include the Linux x64 .NET package. (#88)
 
 ### Fixed
 

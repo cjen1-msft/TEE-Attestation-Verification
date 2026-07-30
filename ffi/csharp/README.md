@@ -23,7 +23,7 @@ Native calls fail with `DllNotFoundException` when the package does not carry a
 native asset for the running platform, or when the OpenSSL 3 runtime libraries
 are missing.
 
-## Verify an SNP attestation
+## Verify a CACI attestation
 
 ```csharp
 using TeeAttestationVerification;
@@ -32,6 +32,18 @@ byte[] reportBytes = File.ReadAllBytes("attestation-report.bin");
 string arkPem = File.ReadAllText("ark.pem");
 string askPem = File.ReadAllText("ask.pem");
 string vcekPem = File.ReadAllText("vcek.pem");
+byte[] uvmEndorsement = File.ReadAllBytes("uvm-endorsement.cose");
+string trustedDidX509 = File.ReadAllText("trusted-did-x509.txt").Trim();
+ReadOnlyMemory<byte>[] trustedPolicyDigests =
+[
+    File.ReadAllBytes("trusted-caci-policy.sha256"),
+];
+(uint Cpuid, ReadOnlyMemory<byte> Tcb)[] minimumTcb =
+[
+    (0x00a00f11u, File.ReadAllBytes("minimum-tcb.bin")),
+];
+string uvmFeed = File.ReadAllText("uvm-feed.txt").Trim();
+ulong minimumSvn = ulong.Parse(File.ReadAllText("minimum-svn.txt"));
 
 try
 {
@@ -41,8 +53,20 @@ try
             arkPem,
             askPem,
             vcekPem);
+    using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
+        uvmEndorsement,
+        trustedDidX509);
+    CaciPolicyDigests trustedPolicies = new(trustedPolicyDigests);
 
-    Console.WriteLine(Convert.ToHexString(report.Measurement()));
+    byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
+        report,
+        minimumTcb,
+        trustedPolicies,
+        uvm,
+        uvmFeed,
+        minimumSvn);
+
+    Console.WriteLine(Convert.ToHexString(reportData));
 }
 catch (VerifyException error)
 {
@@ -50,8 +74,11 @@ catch (VerifyException error)
 }
 ```
 
-`VerifySnpAttestation` authenticates the AMD certificate chain and SNP report
-signature before returning report claims.
+`VerifySnpAttestation` authenticates the AMD certificate chain and SNP report,
+`VerifyUvmEndorsement` authenticates the UVM endorsement, and
+`VerifyCaciAttestation` applies the relying-party policy before returning the
+verified 64-byte report data. Load the trusted DID, policy digests, minimum TCB,
+feed, and minimum SVN from relying-party configuration, not from the attester.
 
 ## Ownership and errors
 

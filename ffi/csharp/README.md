@@ -19,58 +19,92 @@ The runtime environment must provide:
 
 ## Verify a CACI attestation
 
+Confidential ACI publishes `host-amd-cert-base64` and
+`reference-info-base64` under its `UVM_SECURITY_CONTEXT_DIR`. Send those files
+and an SNP attestation report to the relying party. The example below uses a
+hex-encoded report, matching the
+[`caci-attestation-verify` demo](https://github.com/microsoft/TEE-Attestation-Verification/tree/main/demos/caci-attestation-verify).
+
 ```csharp
+using System.Text.Json;
 using TeeAttestationVerification;
 
-byte[] reportBytes = File.ReadAllBytes("attestation-report.bin");
-string arkPem = File.ReadAllText("ark.pem");
-string askPem = File.ReadAllText("ask.pem");
-string vcekPem = File.ReadAllText("vcek.pem");
-byte[] uvmEndorsement = File.ReadAllBytes("uvm-endorsement.cose");
-string trustedDidX509 = File.ReadAllText("trusted-did-x509.txt").Trim();
+const string TrustedDidX509 =
+    "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s" +
+    "::eku:1.3.6.1.4.1.311.76.59.1.2";
+const string TrustedUvmFeed = "ContainerPlat-AMD-UVM";
+const ulong MinimumUvmSvn = 104;
+
+// Evidence supplied by the C-ACI workload is untrusted until verified.
+byte[] reportBytes = ReadHexFile("attestation-report.hex");
+AmdEndorsements amd = ReadAmdEndorsements("host-amd-cert-base64");
+byte[] uvmEndorsement = ReadBase64File("reference-info-base64");
+
+// Relying-party policy must be configured independently of that evidence.
 ReadOnlyMemory<byte>[] trustedPolicyDigests =
 [
-    File.ReadAllBytes("trusted-caci-policy.sha256"),
+    Convert.FromHexString(
+        "4f4448c67f3c8dfc8de8a5e37125d807" +
+        "dadcc41f06cf23f615dbd52eec777d10"),
 ];
-(uint Cpuid, ReadOnlyMemory<byte> Tcb)[] minimumTcb =
-[
-    (0x00a00f11u, File.ReadAllBytes("minimum-tcb.bin")),
-];
-string uvmFeed = File.ReadAllText("uvm-feed.txt").Trim();
-ulong minimumSvn = ulong.Parse(File.ReadAllText("minimum-svn.txt"));
 
-try
+using SnpAttestationReport report = AttestationVerifier.VerifySnpAttestation(
+    reportBytes,
+    amd.ArkPem,
+    amd.AskPem,
+    amd.VcekPem);
+using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
+    uvmEndorsement,
+    TrustedDidX509);
+
+byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
+    report,
+    [], // The minimum TCB policy is omitted from this example.
+    trustedPolicyDigests,
+    uvm,
+    TrustedUvmFeed,
+    MinimumUvmSvn);
+
+Console.WriteLine(Convert.ToHexString(reportData));
+
+static AmdEndorsements ReadAmdEndorsements(string path)
 {
-    SnpAttestationReport report = AttestationVerifier.VerifySnpAttestation(
-        reportBytes,
-        arkPem,
-        askPem,
-        vcekPem);
-    CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
-        uvmEndorsement,
-        trustedDidX509);
+    using JsonDocument document = JsonDocument.Parse(ReadBase64File(path));
+    JsonElement root = document.RootElement;
+    string vcekPem = root.GetProperty("vcekCert").GetString()
+        ?? throw new FormatException("host AMD certificate JSON has no VCEK");
+    string chainPem = root.GetProperty("certificateChain").GetString()
+        ?? throw new FormatException("host AMD certificate JSON has no certificate chain");
 
-    byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
-        report,
-        minimumTcb,
-        trustedPolicyDigests,
-        uvm,
-        uvmFeed,
-        minimumSvn);
+    // C-ACI publishes the certificate chain in ASK, ARK order.
+    IReadOnlyList<string> chain = AttestationVerifier.SplitPemBundle(chainPem);
+    if (chain.Count != 2)
+    {
+        throw new FormatException(
+            $"expected an ASK and ARK certificate, got {chain.Count}");
+    }
 
-    Console.WriteLine(Convert.ToHexString(reportData));
+    return new AmdEndorsements(chain[1], chain[0], vcekPem);
 }
-catch (VerifyException error)
-{
-    Console.Error.WriteLine($"{error.Code}: {error.Message}");
-}
+
+static byte[] ReadBase64File(string path) =>
+    Convert.FromBase64String(RemoveWhitespace(File.ReadAllText(path)));
+
+static byte[] ReadHexFile(string path) =>
+    Convert.FromHexString(RemoveWhitespace(File.ReadAllText(path)));
+
+static string RemoveWhitespace(string value) =>
+    string.Concat(value.Where(character => !char.IsWhiteSpace(character)));
+
+sealed record AmdEndorsements(string ArkPem, string AskPem, string VcekPem);
 ```
 
 `VerifySnpAttestation` authenticates the AMD certificate chain and SNP report,
-`VerifyUvmEndorsement` authenticates the UVM endorsement, and
+`VerifyUvmEndorsement` authenticates `reference-info-base64`, and
 `VerifyCaciAttestation` applies the relying-party policy before returning the
-verified 64-byte report data. Load the trusted DID, policy digests, minimum TCB,
-feed, and minimum SVN from relying-party configuration, not from the attester.
+verified 64-byte report data. The policy digest and minimum SVN above match the
+checked-in demo fixture; replace them with independently managed relying-party
+configuration. Do not trust values merely because the workload supplied them.
 
 Native calls fail with `DllNotFoundException` when the package does not carry a
 native asset for the running platform, or when the OpenSSL 3 runtime libraries

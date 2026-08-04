@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.5]
+
+[1.0.5]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.5
+
+### Added
+
+- Nuget packaging (#94)
+
 ## [1.0.4]
 
 [1.0.4]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.4

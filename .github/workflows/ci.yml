@@ -76,3 +76,19 @@ jobs:
 
       - name: WASM build docs
         run: cargo doc -p tee-attestation-verification-lib --target wasm32-unknown-unknown
+
+  required:
+    name: Workspace CI required
+    if: always()
+    needs:
+      - version-sync
+      - license-headers
+      - format
+      - docs-build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

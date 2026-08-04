@@ -127,3 +127,19 @@ jobs:
 
       - name: Run CACI C FFI demo tests
         run: python3 demos/caci-c-ffi/run_tests.py
+
+  required:
+    name: Demo CI required
+    if: always()
+    needs:
+      - web-verify-kernel
+      - caci-attestation-verify
+      - c-ffi
+      - caci-c-ffi
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

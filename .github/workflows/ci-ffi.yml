@@ -123,3 +123,19 @@ jobs:
       - name: Run C# native API consumer tests
         shell: bash
         run: python3 ffi/csharp/run_tests.py --configuration Release
+
+  required:
+    name: FFI CI required
+    if: always()
+    needs:
+      - native
+      - ffi-wasm-api
+      - ffi-c-api
+      - ffi-csharp-api
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

@@ -53,3 +53,17 @@ jobs:
 
       - name: Test native with KDS
         run: cargo test --manifest-path attestation/Cargo.toml --no-default-features --features "crypto_pure_rust,kds" -- --nocapture
+
+  required:
+    name: Attestation CI required
+    if: always()
+    needs:
+      - wasm
+      - native
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

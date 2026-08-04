@@ -29,3 +29,16 @@ jobs:
 
       - name: Test native with pure-Rust backend
         run: cargo test --manifest-path cose/Cargo.toml --no-default-features --features "crypto_pure_rust" -- --nocapture
+
+  required:
+    name: COSE CI required
+    if: always()
+    needs:
+      - native
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

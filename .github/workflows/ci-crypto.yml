@@ -67,3 +67,17 @@ jobs:
       - name: Test ${{ matrix.backend.name }} backend
         working-directory: crypto
         run: wasm-pack test --node --no-default-features --features "${{ matrix.backend.features }}"
+
+  required:
+    name: Crypto CI required
+    if: always()
+    needs:
+      - native
+      - wasm
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq --exit-status 'all(.[]; .result == "success")' <<< "$NEEDS"

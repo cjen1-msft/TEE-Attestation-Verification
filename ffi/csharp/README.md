@@ -105,13 +105,9 @@ sealed record AmdEndorsements(string ArkPem, string AskPem, string VcekPem);
 verified 64-byte report data. The trusted DID and UVM feed are the stable
 identifiers specified by the
 [Confidential ACI scheme](https://github.com/microsoft/confidential-aci-examples/blob/main/docs/Confidential_ACI_SCHEME.md#reference-info-base64).
-The policy digest and minimum SVN above come from the checked-in
-[demo manifest](https://github.com/microsoft/TEE-Attestation-Verification/blob/main/demos/caci-attestation-verify/test-data/manifest.json).
-Replace the demo values with independently managed relying-party configuration,
-and follow C-ACI's
-[platform update guidance](https://github.com/microsoft/confidential-aci-examples/blob/main/docs/Confidential_ACI_SCHEME.md#platform-update-timing)
-when setting a production minimum SVN. Do not trust values merely because the
-workload supplied them.
+Replace the policy digest and minimum SVN above with independently managed
+relying-party configuration. Do not trust values merely because the workload
+supplied them.
 
 Native calls fail with `DllNotFoundException` when the package does not carry a
 native asset for the running platform, or when the OpenSSL 3 runtime libraries

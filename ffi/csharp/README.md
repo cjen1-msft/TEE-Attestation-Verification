@@ -21,9 +21,7 @@ The runtime environment must provide:
 
 Confidential ACI publishes `host-amd-cert-base64` and
 `reference-info-base64` under its `UVM_SECURITY_CONTEXT_DIR`. Send those files
-and an SNP attestation report to the relying party. The example below uses a
-hex-encoded report, matching the
-[`caci-attestation-verify` demo](https://github.com/microsoft/TEE-Attestation-Verification/tree/main/demos/caci-attestation-verify).
+and a hex-encoded SNP attestation report to the relying party.
 
 ```csharp
 using System.Text.Json;
@@ -33,7 +31,6 @@ const string TrustedDidX509 =
     "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s" +
     "::eku:1.3.6.1.4.1.311.76.59.1.2";
 const string TrustedUvmFeed = "ContainerPlat-AMD-UVM";
-const ulong MinimumUvmSvn = 104;
 
 // Evidence supplied by the C-ACI workload is untrusted until verified.
 byte[] reportBytes = ReadHexFile("attestation-report.hex");
@@ -43,10 +40,9 @@ byte[] uvmEndorsement = ReadBase64File("reference-info-base64");
 // Relying-party policy must be configured independently of that evidence.
 ReadOnlyMemory<byte>[] trustedPolicyDigests =
 [
-    Convert.FromHexString(
-        "4f4448c67f3c8dfc8de8a5e37125d807" +
-        "dadcc41f06cf23f615dbd52eec777d10"),
+    ReadHexFile("trusted-policy-digest.hex"),
 ];
+ulong minimumUvmSvn = ulong.Parse(File.ReadAllText("minimum-uvm-svn").Trim());
 
 using SnpAttestationReport report = AttestationVerifier.VerifySnpAttestation(
     reportBytes,
@@ -59,11 +55,11 @@ using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
 
 byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
     report,
-    [], // The minimum TCB policy is omitted from this example.
+    [],
     trustedPolicyDigests,
     uvm,
     TrustedUvmFeed,
-    MinimumUvmSvn);
+    minimumUvmSvn);
 
 Console.WriteLine(Convert.ToHexString(reportData));
 
@@ -105,9 +101,8 @@ sealed record AmdEndorsements(string ArkPem, string AskPem, string VcekPem);
 verified 64-byte report data. The trusted DID and UVM feed are the stable
 identifiers specified by the
 [Confidential ACI scheme](https://github.com/microsoft/confidential-aci-examples/blob/main/docs/Confidential_ACI_SCHEME.md#reference-info-base64).
-Replace the policy digest and minimum SVN above with independently managed
-relying-party configuration. Do not trust values merely because the workload
-supplied them.
+Load trusted policy digests and the minimum SVN from relying-party
+configuration.
 
 Native calls fail with `DllNotFoundException` when the package does not carry a
 native asset for the running platform, or when the OpenSSL 3 runtime libraries

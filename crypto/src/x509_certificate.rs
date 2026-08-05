@@ -6,7 +6,7 @@ use std::{future::Future, pin::Pin};
 
 use pkcs1::{RsaPssParams, TrailerField};
 use x509_cert::der::{
-    asn1::{AnyRef, PrintableStringRef, Utf8StringRef},
+    asn1::{AnyRef, Ia5StringRef, PrintableStringRef, Utf8StringRef},
     oid::ObjectIdentifier,
     pem::LineEnding,
     referenced::OwnedToRef,
@@ -19,8 +19,9 @@ use x509_cert::ext::pkix::{
 use x509_cert::spki::AlgorithmIdentifierOwned;
 
 use super::{
-    AttributeTypeAndValue, BasicConstraints, DistinguishedName, GeneralName, KeyUsage, Result,
-    RsaPkcs1v15SignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm,
+    AttributeTypeAndValue, BasicConstraints, DistinguishedName, EcSignatureKeyAlgorithm,
+    GeneralName, KeyUsage, Result, RsaPkcs1v15SignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm,
+    SignatureKeyAlgorithm,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -323,6 +324,17 @@ fn parse_signature_algorithm(
             RsaPkcs1v15SignatureKeyAlgorithm::Rs512,
         ));
     }
+    if algorithm_ref.parameters.is_none() {
+        if algorithm_ref.oid == oid::ECDSA_WITH_SHA256 {
+            return Ok(SignatureKeyAlgorithm::Ec(EcSignatureKeyAlgorithm::P256));
+        }
+        if algorithm_ref.oid == oid::ECDSA_WITH_SHA384 {
+            return Ok(SignatureKeyAlgorithm::Ec(EcSignatureKeyAlgorithm::P384));
+        }
+        if algorithm_ref.oid == oid::ECDSA_WITH_SHA512 {
+            return Ok(SignatureKeyAlgorithm::Ec(EcSignatureKeyAlgorithm::P521));
+        }
+    }
 
     Err(format!("Unsupported signature algorithm OID: {}", algorithm_ref.oid).into())
 }
@@ -417,12 +429,19 @@ mod oid {
     /// sha512WithRSAEncryption from RFC 5754 section 3.2.
     pub const SHA512_WITH_RSA_ENCRYPTION: ObjectIdentifier =
         ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.13");
+    pub const ECDSA_WITH_SHA256: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2");
+    pub const ECDSA_WITH_SHA384: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.3");
+    pub const ECDSA_WITH_SHA512: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.4");
 }
 
 fn directory_string(value: &x509_cert::der::asn1::Any) -> Result<String> {
     let string = match value.tag() {
         Tag::PrintableString => value.decode_as::<PrintableStringRef<'_>>()?.as_str(),
         Tag::Utf8String => value.decode_as::<Utf8StringRef<'_>>()?.as_str(),
+        Tag::Ia5String => value.decode_as::<Ia5StringRef<'_>>()?.as_str(),
         tag => {
             return Err(format!("Unsupported distinguished-name string tag {tag:?}").into());
         }
@@ -603,7 +622,8 @@ mod test {
 
     use super::Certificate;
     use crate::{
-        RsaPkcs1v15SignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm,
+        EcSignatureKeyAlgorithm, RsaPkcs1v15SignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm,
+        SignatureKeyAlgorithm,
     };
 
     const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
@@ -761,6 +781,26 @@ mod test {
                 super::parse_signature_algorithm(&algorithm_identifier)
                     .expect("RSA PKCS#1 v1.5 SHA-2 OID should parse"),
                 SignatureKeyAlgorithm::RsaPkcs1v15(algorithm)
+            );
+        }
+    }
+
+    #[test]
+    fn signature_algorithm_accepts_ecdsa_with_sha2_oids() {
+        for (oid, algorithm) in [
+            (super::oid::ECDSA_WITH_SHA256, EcSignatureKeyAlgorithm::P256),
+            (super::oid::ECDSA_WITH_SHA384, EcSignatureKeyAlgorithm::P384),
+            (super::oid::ECDSA_WITH_SHA512, EcSignatureKeyAlgorithm::P521),
+        ] {
+            let algorithm_identifier = x509_cert::spki::AlgorithmIdentifierOwned {
+                oid,
+                parameters: None,
+            };
+
+            assert_eq!(
+                super::parse_signature_algorithm(&algorithm_identifier)
+                    .expect("ECDSA-with-SHA2 OID should parse"),
+                SignatureKeyAlgorithm::Ec(algorithm)
             );
         }
     }

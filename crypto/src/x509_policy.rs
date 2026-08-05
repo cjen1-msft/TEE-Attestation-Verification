@@ -80,8 +80,7 @@ where
         }
     }
 
-    for window in padded_windows::<_, _, 1>(path.clone()) {
-        let cert = window[0].unwrap();
+    for (index, cert) in path.clone().enumerate() {
         let cert_subject = Backend::subject_name(cert);
         if !Backend::is_valid_at(cert, unix_time)? {
             return Err(format!(
@@ -95,7 +94,15 @@ where
         assert_skipped_extension_not_present::<Backend>(cert, oid::NAME_CONSTRAINTS, true)?;
         assert_skipped_extension_not_present::<Backend>(cert, oid::POLICY_CONSTRAINTS, true)?;
         assert_skipped_extension_not_present::<Backend>(cert, oid::INHIBIT_ANY_POLICY, true)?;
-        assert_no_unhandled_critical_extensions::<Backend>(cert)?;
+        let is_target = index + 1 == path_len;
+        if is_target && Backend::extension_criticality(cert, oid::SUBJECT_ALT_NAME)? == Some(true) {
+            Backend::subject_alt_names(cert)?;
+        }
+        if is_target && Backend::extension_criticality(cert, oid::EXTENDED_KEY_USAGE)? == Some(true)
+        {
+            Backend::extended_key_usage_oids(cert)?;
+        }
+        assert_no_unhandled_critical_extensions::<Backend>(cert, is_target)?;
     }
 
     // assert basic_constraints and key usage for all certs with a child - ie a non-leaf cert
@@ -204,9 +211,12 @@ fn assert_skipped_extension_not_present<Backend: CertificateBackend>(
 /// Rejects critical extensions outside the subset handled by this module.
 fn assert_no_unhandled_critical_extensions<Backend: CertificateBackend>(
     cert: &Backend::Certificate,
+    is_target: bool,
 ) -> super::Result<()> {
     for critical_oid in Backend::critical_extension_oids(cert) {
-        if !oid::HANDLED_CRITICAL_EXTENSIONS.contains(&critical_oid.as_str()) {
+        if !oid::HANDLED_CRITICAL_EXTENSIONS.contains(&critical_oid.as_str())
+            && !(is_target && oid::TARGET_CRITICAL_EXTENSIONS.contains(&critical_oid.as_str()))
+        {
             return Err(format!(
                 "Certificate {} contains unhandled critical extension {}",
                 Backend::subject_name(cert),
@@ -234,8 +244,13 @@ mod oid {
     pub const POLICY_CONSTRAINTS: &str = "2.5.29.36";
     /// RFC 5280 section 4.2.1.14: id-ce-inhibitAnyPolicy OBJECT IDENTIFIER ::= { id-ce 54 }.
     pub const INHIBIT_ANY_POLICY: &str = "2.5.29.54";
+    /// RFC 5280 section 4.2.1.6: id-ce-subjectAltName OBJECT IDENTIFIER ::= { id-ce 17 }.
+    pub const SUBJECT_ALT_NAME: &str = "2.5.29.17";
+    /// RFC 5280 section 4.2.1.12: id-ce-extKeyUsage OBJECT IDENTIFIER ::= { id-ce 37 }.
+    pub const EXTENDED_KEY_USAGE: &str = "2.5.29.37";
 
     pub const HANDLED_CRITICAL_EXTENSIONS: &[&str] = &[BASIC_CONSTRAINTS, KEY_USAGE];
+    pub const TARGET_CRITICAL_EXTENSIONS: &[&str] = &[SUBJECT_ALT_NAME, EXTENDED_KEY_USAGE];
 }
 
 #[cfg(test)]
@@ -385,6 +400,32 @@ mod tests {
         let path = [&root, &leaf];
 
         policy(&path, Duration::from_secs(10)).expect_err("unknown critical extension must fail");
+    }
+
+    #[test]
+    fn rfc5280_policy_accepts_critical_san_and_eku_on_target() {
+        for oid in ["2.5.29.17", "2.5.29.37"] {
+            let root = TestCertificate::ca("Root", "Root");
+            let mut leaf = TestCertificate::leaf("Leaf", "Root");
+            leaf.extensions.insert(oid.to_string(), true);
+            let path = [&root, &leaf];
+
+            policy(&path, Duration::from_secs(10))
+                .expect("handled target extension should be accepted");
+        }
+    }
+
+    #[test]
+    fn rfc5280_policy_rejects_critical_san_and_eku_on_issuer() {
+        for oid in ["2.5.29.17", "2.5.29.37"] {
+            let mut root = TestCertificate::ca("Root", "Root");
+            root.extensions.insert(oid.to_string(), true);
+            let leaf = TestCertificate::leaf("Leaf", "Root");
+            let path = [&root, &leaf];
+
+            policy(&path, Duration::from_secs(10))
+                .expect_err("target-only critical extension on issuer must fail");
+        }
     }
 
     #[test]
@@ -539,11 +580,11 @@ mod tests {
         }
 
         fn subject_alt_names(_cert: &Self::Certificate) -> Result<Vec<crate::GeneralName>> {
-            unimplemented!("test backend does not expose typed subject alternative names")
+            Ok(Vec::new())
         }
 
         fn extended_key_usage_oids(_cert: &Self::Certificate) -> Result<Vec<String>> {
-            unimplemented!("test backend does not expose extended key usages")
+            Ok(Vec::new())
         }
 
         fn is_valid_at(cert: &Self::Certificate, unix_time: Duration) -> Result<bool> {

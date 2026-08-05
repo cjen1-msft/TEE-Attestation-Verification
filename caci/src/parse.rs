@@ -43,6 +43,7 @@ pub(crate) fn parse_x5chain_certs(
     };
     let intermediates = intermediate_certs
         .iter()
+        .rev()
         .map(|cert| {
             crypto::Crypto::from_der(cert).map_err(|e| AciError::Certificate(e.to_string()))
         })
@@ -150,5 +151,47 @@ pub fn required_int(value: &CborValue, name: &str) -> Result<i64, AciError> {
     match value {
         CborValue::Int(i) => Ok(*i),
         _ => Err(AciError::Cose(format!("{name} must be an integer"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_x5chain_certs;
+    use crypto::CertificateBackend;
+
+    const MILAN_ARK: &[u8] = include_bytes!("../../crypto/src/test_data/milan_ark.pem");
+    const MILAN_ASK: &[u8] = include_bytes!("../../crypto/src/test_data/milan_ask.pem");
+    const MILAN_VCEK: &[u8] = include_bytes!("../../crypto/src/test_data/milan_vcek.pem");
+    const GENOA_ASK: &[u8] = include_bytes!("../../crypto/src/test_data/genoa_ask.pem");
+
+    fn der(pem: &[u8]) -> Vec<u8> {
+        let cert = crypto::Crypto::from_pem(pem).unwrap();
+        crypto::Crypto::to_der(&cert).unwrap()
+    }
+
+    #[test]
+    fn x5chain_intermediates_are_returned_root_first() {
+        let leaf = der(MILAN_VCEK);
+        let leaf_issuer = der(MILAN_ASK);
+        let root_issuer = der(GENOA_ASK);
+        let root = der(MILAN_ARK);
+        let x5chain = vec![
+            leaf.clone(),
+            leaf_issuer.clone(),
+            root_issuer.clone(),
+            root.clone(),
+        ];
+
+        let (parsed_root, intermediates, parsed_leaf) = parse_x5chain_certs(&x5chain).unwrap();
+
+        assert_eq!(crypto::Crypto::to_der(&parsed_leaf).unwrap(), leaf);
+        assert_eq!(crypto::Crypto::to_der(&parsed_root).unwrap(), root);
+        assert_eq!(
+            intermediates
+                .iter()
+                .map(|cert| crypto::Crypto::to_der(cert).unwrap())
+                .collect::<Vec<_>>(),
+            vec![root_issuer, leaf_issuer]
+        );
     }
 }

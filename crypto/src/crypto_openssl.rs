@@ -27,8 +27,8 @@ use openssl_sys::{
     X509_EXTENSION_get_object, X509_get_ext, X509_get_ext_by_OBJ, X509_get_ext_count,
     X509_get_ext_d2i, X509_get_extension_flags, X509_get_key_usage, X509v3_KU_KEY_CERT_SIGN,
     EXFLAG_CA, GENERAL_NAME, GEN_DIRNAME, GEN_DNS, GEN_EDIPARTY, GEN_EMAIL, GEN_IPADD,
-    GEN_OTHERNAME, GEN_RID, GEN_URI, GEN_X400, V_ASN1_PRINTABLESTRING, V_ASN1_UTF8STRING,
-    X509_NAME_ENTRY,
+    GEN_OTHERNAME, GEN_RID, GEN_URI, GEN_X400, V_ASN1_IA5STRING, V_ASN1_PRINTABLESTRING,
+    V_ASN1_UTF8STRING, X509_NAME_ENTRY,
 };
 use std::cmp::Ordering;
 use std::os::raw::c_int;
@@ -447,6 +447,12 @@ fn directory_string(value: &openssl::asn1::Asn1StringRef) -> Result<String> {
             std::str::from_utf8(bytes)?
         }
         V_ASN1_UTF8STRING => std::str::from_utf8(bytes)?,
+        V_ASN1_IA5STRING => {
+            if !bytes.is_ascii() {
+                return Err("Invalid IA5String character in distinguished name".into());
+            }
+            std::str::from_utf8(bytes)?
+        }
         tag => {
             return Err(format!("Unsupported distinguished-name string tag {tag}").into());
         }
@@ -718,6 +724,18 @@ impl CryptoBackend for Crypto {
         leaf: &Certificate,
         unix_time: Option<std::time::Duration>,
     ) -> Result<()> {
+        let mut issuer = trusted_cert;
+        for subject in untrusted_chain.iter().copied().chain(std::iter::once(leaf)) {
+            if !Self::issuer_name_matches_subject(subject, issuer)? {
+                return Err("Certificate chain is not in issuer-to-subject order".into());
+            }
+            let issuer_public_key = issuer.public_key()?;
+            if !subject.verify(&issuer_public_key)? {
+                return Err("Certificate signature verification failed".into());
+            }
+            issuer = subject;
+        }
+
         let mut store_builder = openssl::x509::store::X509StoreBuilder::new()?;
         store_builder.add_cert(trusted_cert.to_owned())?;
         store_builder.set_flags(X509VerifyFlags::PARTIAL_CHAIN)?;

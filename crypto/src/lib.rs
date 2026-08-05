@@ -178,6 +178,9 @@ pub trait CryptoBackend: CertificateBackend {
     ) -> Result<()>;
 
     /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
+    ///
+    /// `untrusted_chain` is ordered from the certificate issued by
+    /// `trusted_cert` toward the certificate that issues `leaf`.
     fn verify_chain(
         trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
@@ -205,6 +208,9 @@ pub trait AsyncCryptoBackend: CertificateBackend {
     ) -> impl std::future::Future<Output = Result<()>>;
 
     /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
+    ///
+    /// `untrusted_chain` is ordered from the certificate issued by
+    /// `trusted_cert` toward the certificate that issues `leaf`.
     fn verify_chain(
         trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],

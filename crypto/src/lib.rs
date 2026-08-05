@@ -60,6 +60,30 @@ pub struct KeyUsage {
     pub key_cert_sign: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttributeTypeAndValue {
+    pub oid: String,
+    pub value: String,
+}
+
+pub type RelativeDistinguishedName = Vec<AttributeTypeAndValue>;
+pub type RdnSequence = Vec<RelativeDistinguishedName>;
+pub type DistinguishedName = RdnSequence;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum GeneralName {
+    OtherName(Vec<u8>),
+    Rfc822Name(String),
+    DnsName(String),
+    X400Address(Vec<u8>),
+    DirectoryName(Vec<u8>),
+    EdiPartyName(Vec<u8>),
+    UniformResourceIdentifier(String),
+    IpAddress(Vec<u8>),
+    RegisteredId(String),
+}
+
 /// API for the certificate types of the backend
 pub trait CertificateBackend {
     type Certificate: Clone;
@@ -96,6 +120,15 @@ pub trait CertificateBackend {
 
     /// Return the DER-encoded issuer distinguished name.
     fn issuer_name_der(cert: &Self::Certificate) -> Result<Vec<u8>>;
+
+    /// Return the decoded certificate subject distinguished name.
+    fn subject_distinguished_name(cert: &Self::Certificate) -> Result<DistinguishedName>;
+
+    /// Return decoded subject alternative names, preserving extension order.
+    fn subject_alt_names(cert: &Self::Certificate) -> Result<Vec<GeneralName>>;
+
+    /// Return extended key usage object identifiers in dotted-decimal form.
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>>;
 
     /// Return whether `cert`'s issuer name matches `issuer`'s subject name.
     fn issuer_name_matches_subject(

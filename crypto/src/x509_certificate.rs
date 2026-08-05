@@ -6,15 +6,21 @@ use std::{future::Future, pin::Pin};
 
 use pkcs1::{RsaPssParams, TrailerField};
 use x509_cert::der::{
-    asn1::AnyRef, oid::ObjectIdentifier, pem::LineEnding, referenced::OwnedToRef, Decode,
-    DecodePem, Encode, EncodePem,
+    asn1::{AnyRef, PrintableStringRef, Utf8StringRef},
+    oid::ObjectIdentifier,
+    pem::LineEnding,
+    referenced::OwnedToRef,
+    Decode, DecodePem, Encode, EncodePem, Tag, TagNumber, Tagged,
 };
-use x509_cert::ext::pkix::{BasicConstraints as X509BasicConstraints, KeyUsage as X509KeyUsage};
+use x509_cert::ext::pkix::{
+    name::GeneralName as X509GeneralName, BasicConstraints as X509BasicConstraints,
+    ExtendedKeyUsage, KeyUsage as X509KeyUsage,
+};
 use x509_cert::spki::AlgorithmIdentifierOwned;
 
 use super::{
-    BasicConstraints, KeyUsage, Result, RsaPkcs1v15SignatureKeyAlgorithm,
-    RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm,
+    AttributeTypeAndValue, BasicConstraints, DistinguishedName, GeneralName, KeyUsage, Result,
+    RsaPkcs1v15SignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm, SignatureKeyAlgorithm,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -166,6 +172,53 @@ impl Certificate {
         Ok(self.inner.tbs_certificate.issuer.to_der()?)
     }
 
+    pub fn subject_distinguished_name(&self) -> Result<DistinguishedName> {
+        self.inner
+            .tbs_certificate
+            .subject
+            .0
+            .iter()
+            .map(|rdn| {
+                if rdn.0.is_empty() {
+                    return Err("Certificate subject contains an empty RDN".into());
+                }
+                rdn.0
+                    .iter()
+                    .map(|attribute| {
+                        Ok(AttributeTypeAndValue {
+                            oid: attribute.oid.to_string(),
+                            value: directory_string(&attribute.value)?,
+                        })
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    pub fn subject_alt_names(&self) -> Result<Vec<GeneralName>> {
+        let Some(value) = self.unique_extension_value(oid::SUBJECT_ALT_NAME)? else {
+            return Ok(Vec::new());
+        };
+        let names = Vec::<AnyRef<'_>>::from_der(value)?;
+        if names.is_empty() {
+            return Err("subjectAltName must contain at least one GeneralName".into());
+        }
+
+        names.into_iter().map(decode_general_name).collect()
+    }
+
+    pub fn extended_key_usage_oids(&self) -> Result<Vec<String>> {
+        let Some(value) = self.unique_extension_value(oid::EXTENDED_KEY_USAGE)? else {
+            return Ok(Vec::new());
+        };
+        validate_extended_key_usage_der(value)?;
+        let usages = ExtendedKeyUsage::from_der(value)?;
+        if usages.0.is_empty() {
+            return Err("extendedKeyUsage must contain at least one OID".into());
+        }
+        Ok(usages.0.into_iter().map(|oid| oid.to_string()).collect())
+    }
+
     pub fn is_valid_at(&self, unix_time: std::time::Duration) -> Result<bool> {
         let validity = self.inner.tbs_certificate.validity;
         Ok(validity.not_before.to_unix_duration() <= unix_time
@@ -221,6 +274,24 @@ impl Certificate {
             .iter()
             .filter_map(|extension| extension.critical.then(|| extension.extn_id.to_string()))
             .collect()
+    }
+
+    fn unique_extension_value(&self, oid: ObjectIdentifier) -> Result<Option<&[u8]>> {
+        let mut matches = self
+            .inner
+            .tbs_certificate
+            .extensions
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter(|extension| extension.extn_id == oid);
+        let Some(extension) = matches.next() else {
+            return Ok(None);
+        };
+        if matches.next().is_some() {
+            return Err(format!("Certificate contains duplicate {oid} extensions").into());
+        }
+        Ok(Some(extension.extn_value.as_bytes()))
     }
 }
 
@@ -319,6 +390,11 @@ fn rsa_pss_hash_oid(algorithm: RsaPssSignatureKeyAlgorithm) -> ObjectIdentifier 
 mod oid {
     use x509_cert::der::oid::ObjectIdentifier;
 
+    /// RFC 5280 section 4.2.1.6: id-ce-subjectAltName OBJECT IDENTIFIER ::= { id-ce 17 }.
+    pub const SUBJECT_ALT_NAME: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.17");
+    /// RFC 5280 section 4.2.1.12: id-ce-extKeyUsage OBJECT IDENTIFIER ::= { id-ce 37 }.
+    pub const EXTENDED_KEY_USAGE: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.37");
+
     // RFC 4055: https://www.rfc-editor.org/rfc/rfc4055.html
     // RFC 5754: https://www.rfc-editor.org/rfc/rfc5754.html
     // RFC 8017: https://www.rfc-editor.org/rfc/rfc8017.html
@@ -341,6 +417,184 @@ mod oid {
     /// sha512WithRSAEncryption from RFC 5754 section 3.2.
     pub const SHA512_WITH_RSA_ENCRYPTION: ObjectIdentifier =
         ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.13");
+}
+
+fn directory_string(value: &x509_cert::der::asn1::Any) -> Result<String> {
+    let string = match value.tag() {
+        Tag::PrintableString => value.decode_as::<PrintableStringRef<'_>>()?.as_str(),
+        Tag::Utf8String => value.decode_as::<Utf8StringRef<'_>>()?.as_str(),
+        tag => {
+            return Err(format!("Unsupported distinguished-name string tag {tag:?}").into());
+        }
+    };
+    Ok(string.to_owned())
+}
+
+fn decode_general_name(raw: AnyRef<'_>) -> Result<GeneralName> {
+    let der = raw.to_der()?;
+    let Tag::ContextSpecific {
+        constructed,
+        number,
+    } = raw.tag()
+    else {
+        return Err(general_name_error(raw.tag(), &der).into());
+    };
+
+    if matches!(number, TagNumber::N3 | TagNumber::N5) {
+        if !constructed {
+            return Err(general_name_error(raw.tag(), &der).into());
+        }
+        if number == TagNumber::N5 {
+            validate_edi_party_name(raw.value())?;
+        }
+        return Ok(match number {
+            TagNumber::N3 => GeneralName::X400Address(der),
+            TagNumber::N5 => GeneralName::EdiPartyName(der),
+            _ => unreachable!(),
+        });
+    }
+
+    let decoded = X509GeneralName::from_der(&der)
+        .map_err(|error| format!("{}: {error}", general_name_error(raw.tag(), &der)))?;
+    Ok(match decoded {
+        X509GeneralName::Rfc822Name(value) => GeneralName::Rfc822Name(value.to_string()),
+        X509GeneralName::DnsName(value) => GeneralName::DnsName(value.to_string()),
+        X509GeneralName::UniformResourceIdentifier(value) => {
+            GeneralName::UniformResourceIdentifier(value.to_string())
+        }
+        X509GeneralName::IpAddress(value) => {
+            let bytes = value.as_bytes();
+            if !matches!(bytes.len(), 4 | 16) {
+                return Err(format!("Invalid iPAddress GeneralName length {}", bytes.len()).into());
+            }
+            GeneralName::IpAddress(bytes.to_vec())
+        }
+        X509GeneralName::RegisteredId(value) => {
+            validate_oid_value(raw.value())?;
+            GeneralName::RegisteredId(value.to_string())
+        }
+        X509GeneralName::OtherName(_) => GeneralName::OtherName(der),
+        X509GeneralName::DirectoryName(_) => GeneralName::DirectoryName(der),
+        X509GeneralName::EdiPartyName(_) => unreachable!(),
+    })
+}
+
+fn validate_extended_key_usage_der(der: &[u8]) -> Result<()> {
+    let (tag, mut sequence, rest) = der_element(der)?;
+    if tag != 0x30 || !rest.is_empty() {
+        return Err("extendedKeyUsage is not a DER SEQUENCE".into());
+    }
+    while !sequence.is_empty() {
+        let (tag, value, remaining) = der_element(sequence)?;
+        if tag != 0x06 {
+            return Err("extendedKeyUsage contains a non-OID value".into());
+        }
+        validate_oid_value(value)?;
+        sequence = remaining;
+    }
+    Ok(())
+}
+
+fn validate_oid_value(value: &[u8]) -> Result<()> {
+    if !(3..=39).contains(&value.len()) || value[0] & 0x80 != 0 {
+        return Err("OID is outside the supported range".into());
+    }
+
+    let mut remaining = &value[1..];
+    while !remaining.is_empty() {
+        if remaining[0] == 0x80 {
+            return Err("OID contains a non-minimal subidentifier".into());
+        }
+        let mut arc = 0u64;
+        let mut byte_count = 0;
+        loop {
+            let (&byte, rest) = remaining
+                .split_first()
+                .ok_or("OID contains a truncated subidentifier")?;
+            remaining = rest;
+            byte_count += 1;
+            arc = (arc << 7) | u64::from(byte & 0x7f);
+            if arc > u64::from(u32::MAX) {
+                return Err("OID contains an oversized subidentifier".into());
+            }
+            if byte & 0x80 == 0 {
+                if byte_count > 4 && byte & 0xf0 != 0 {
+                    return Err("OID is outside the supported range".into());
+                }
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_edi_party_name(mut value: &[u8]) -> Result<()> {
+    let (first_tag, first_value, rest) = der_element(value)?;
+    value = rest;
+    if first_tag == 0xa0 {
+        validate_explicit_directory_string(first_value)?;
+        let (party_tag, party_value, rest) = der_element(value)?;
+        if party_tag != 0xa1 {
+            return Err("ediPartyName is missing partyName".into());
+        }
+        validate_explicit_directory_string(party_value)?;
+        value = rest;
+    } else {
+        if first_tag != 0xa1 {
+            return Err("ediPartyName contains an invalid field".into());
+        }
+        validate_explicit_directory_string(first_value)?;
+    }
+    if !value.is_empty() {
+        return Err("ediPartyName contains trailing fields".into());
+    }
+    Ok(())
+}
+
+fn validate_explicit_directory_string(value: &[u8]) -> Result<()> {
+    let (tag, value, rest) = der_element(value)?;
+    if !rest.is_empty() || !matches!(tag, 0x0c | 0x13 | 0x14 | 0x1c | 0x1e) {
+        return Err("ediPartyName contains an invalid DirectoryString".into());
+    }
+    if (tag == 0x1c && value.len() % 4 != 0) || (tag == 0x1e && value.len() % 2 != 0) {
+        return Err("ediPartyName contains an invalid DirectoryString length".into());
+    }
+    Ok(())
+}
+
+fn der_element(input: &[u8]) -> Result<(u8, &[u8], &[u8])> {
+    let (&tag, input) = input.split_first().ok_or("Truncated DER element")?;
+    let (&first_length, input) = input.split_first().ok_or("Truncated DER length")?;
+    let (length, input) = if first_length < 0x80 {
+        (first_length as usize, input)
+    } else {
+        let length_bytes = (first_length & 0x7f) as usize;
+        if length_bytes == 0
+            || length_bytes > std::mem::size_of::<usize>()
+            || input.len() < length_bytes
+            || input[0] == 0
+        {
+            return Err("Invalid DER length".into());
+        }
+        let length = input[..length_bytes]
+            .iter()
+            .fold(0usize, |length, byte| (length << 8) | *byte as usize);
+        if length < 0x80 {
+            return Err("Non-minimal DER length".into());
+        }
+        (length, &input[length_bytes..])
+    };
+    if input.len() < length {
+        return Err("Truncated DER value".into());
+    }
+    Ok((tag, &input[..length], &input[length..]))
+}
+
+fn general_name_error(tag: Tag, der: &[u8]) -> String {
+    format!(
+        "Invalid GeneralName tag {tag:?}, DER {}",
+        crate::hex::to_hex(der)
+    )
 }
 
 #[cfg(test)]

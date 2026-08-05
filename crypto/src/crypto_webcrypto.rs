@@ -159,6 +159,18 @@ impl CertificateBackend for Crypto {
         cert.inner.issuer_name_der()
     }
 
+    fn subject_distinguished_name(cert: &Self::Certificate) -> Result<super::DistinguishedName> {
+        cert.inner.subject_distinguished_name()
+    }
+
+    fn subject_alt_names(cert: &Self::Certificate) -> Result<Vec<super::GeneralName>> {
+        cert.inner.subject_alt_names()
+    }
+
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>> {
+        cert.inner.extended_key_usage_oids()
+    }
+
     fn is_valid_at(cert: &Self::Certificate, unix_time: std::time::Duration) -> Result<bool> {
         cert.inner.is_valid_at(unix_time)
     }

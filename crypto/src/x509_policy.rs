@@ -535,6 +535,20 @@ mod tests {
             Ok(cert.issuer.as_bytes().to_vec())
         }
 
+        fn subject_distinguished_name(
+            _cert: &Self::Certificate,
+        ) -> Result<crate::DistinguishedName> {
+            unimplemented!("test backend does not expose typed subjects")
+        }
+
+        fn subject_alt_names(_cert: &Self::Certificate) -> Result<Vec<crate::GeneralName>> {
+            unimplemented!("test backend does not expose typed subject alternative names")
+        }
+
+        fn extended_key_usage_oids(_cert: &Self::Certificate) -> Result<Vec<String>> {
+            unimplemented!("test backend does not expose extended key usages")
+        }
+
         fn is_valid_at(cert: &Self::Certificate, unix_time: Duration) -> Result<bool> {
             Ok(cert.valid_from <= unix_time && unix_time <= cert.valid_until)
         }

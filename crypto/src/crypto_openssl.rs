@@ -20,19 +20,28 @@ use openssl::sign::{RsaPssSaltlen, Verifier as OpenSslVerifier};
 use openssl::stack::Stack;
 use openssl::x509::verify::X509VerifyFlags;
 use openssl::x509::verify::X509VerifyParam;
+use openssl::x509::{GeneralName as OpenSslGeneralName, GeneralNameRef};
 use openssl_sys::{
-    ASN1_STRING_get0_data, ASN1_STRING_length, X509_EXTENSION_get_critical,
-    X509_EXTENSION_get_data, X509_EXTENSION_get_object, X509_get_ext, X509_get_ext_by_OBJ,
-    X509_get_ext_count, X509_get_extension_flags, X509_get_key_usage, X509v3_KU_KEY_CERT_SIGN,
-    EXFLAG_CA,
+    ASN1_STRING_get0_data, ASN1_STRING_length, ASN1_STRING_type, NID_ext_key_usage,
+    NID_subject_alt_name, OBJ_obj2txt, X509_EXTENSION_get_critical, X509_EXTENSION_get_data,
+    X509_EXTENSION_get_object, X509_get_ext, X509_get_ext_by_OBJ, X509_get_ext_count,
+    X509_get_ext_d2i, X509_get_extension_flags, X509_get_key_usage, X509v3_KU_KEY_CERT_SIGN,
+    EXFLAG_CA, GEN_DIRNAME, GEN_DNS, GEN_EDIPARTY, GEN_EMAIL, GEN_IPADD, GEN_OTHERNAME, GEN_RID,
+    GEN_URI, GEN_X400, V_ASN1_PRINTABLESTRING, V_ASN1_UTF8STRING, X509_NAME_ENTRY,
 };
 use std::cmp::Ordering;
+use std::os::raw::c_int;
 
 use super::{
-    compatible_key_and_signature, CertificateBackend, CryptoBackend, DigestAlgorithm,
-    EcSignatureKeyAlgorithm, KeyBackend, Result, RsaPkcs1v15SignatureKeyAlgorithm,
-    RsaPssSignatureKeyAlgorithm, SignatureBackend, SignatureKeyAlgorithm,
+    compatible_key_and_signature, AttributeTypeAndValue, CertificateBackend, CryptoBackend,
+    DigestAlgorithm, DistinguishedName, EcSignatureKeyAlgorithm, GeneralName, KeyBackend, Result,
+    RsaPkcs1v15SignatureKeyAlgorithm, RsaPssSignatureKeyAlgorithm, SignatureBackend,
+    SignatureKeyAlgorithm,
 };
+
+extern "C" {
+    fn X509_NAME_ENTRY_set(entry: *const X509_NAME_ENTRY) -> c_int;
+}
 
 pub struct Crypto;
 
@@ -192,6 +201,69 @@ impl CertificateBackend for Crypto {
         Ok(cert.issuer_name().to_der()?)
     }
 
+    fn subject_distinguished_name(cert: &Self::Certificate) -> Result<DistinguishedName> {
+        let mut distinguished_name = DistinguishedName::new();
+        let mut current_set = None;
+
+        for entry in cert.subject_name().entries() {
+            let set = unsafe { X509_NAME_ENTRY_set(entry.as_ptr()) };
+            if set < 0 {
+                return Err("OpenSSL returned a negative RDN set index".into());
+            }
+            match current_set {
+                Some(previous) if set == previous => {}
+                Some(previous) if set == previous + 1 => {
+                    distinguished_name.push(Vec::new());
+                    current_set = Some(set);
+                }
+                None if set == 0 => {
+                    distinguished_name.push(Vec::new());
+                    current_set = Some(set);
+                }
+                _ => return Err("Certificate subject contains out-of-order RDNs".into()),
+            }
+            distinguished_name
+                .last_mut()
+                .expect("an RDN was just inserted")
+                .push(AttributeTypeAndValue {
+                    oid: dotted_oid(entry.object())?,
+                    value: directory_string(entry.data())?,
+                });
+        }
+
+        Ok(distinguished_name)
+    }
+
+    fn subject_alt_names(cert: &Self::Certificate) -> Result<Vec<GeneralName>> {
+        let Some(names) = (unsafe {
+            decoded_extension_stack::<OpenSslGeneralName>(
+                cert,
+                NID_subject_alt_name,
+                "subjectAltName",
+            )
+        })?
+        else {
+            return Ok(Vec::new());
+        };
+        if names.is_empty() {
+            return Err("subjectAltName must contain at least one GeneralName".into());
+        }
+        names.iter().map(decode_general_name).collect()
+    }
+
+    fn extended_key_usage_oids(cert: &Self::Certificate) -> Result<Vec<String>> {
+        let Some(usages) = (unsafe {
+            decoded_extension_stack::<Asn1Object>(cert, NID_ext_key_usage, "extendedKeyUsage")
+        })?
+        else {
+            return Ok(Vec::new());
+        };
+        if usages.is_empty() {
+            return Err("extendedKeyUsage must contain at least one OID".into());
+        }
+        usages.iter().map(dotted_oid).collect()
+    }
+
     fn is_valid_at(cert: &Self::Certificate, unix_time: std::time::Duration) -> Result<bool> {
         let unix_time = unix_time
             .as_secs()
@@ -292,6 +364,103 @@ mod oid {
     pub const BASIC_CONSTRAINTS: &str = "2.5.29.19";
     /// RFC 5280 section 4.2.1.3: id-ce-keyUsage OBJECT IDENTIFIER ::= { id-ce 15 }.
     pub const KEY_USAGE: &str = "2.5.29.15";
+}
+
+fn dotted_oid(oid: &Asn1ObjectRef) -> Result<String> {
+    let length = unsafe { OBJ_obj2txt(std::ptr::null_mut(), 0, oid.as_ptr(), 1) };
+    if length < 0 {
+        return Err("OpenSSL failed to determine OID text length".into());
+    }
+
+    let mut output = vec![0_u8; length as usize + 1];
+    let written = unsafe {
+        OBJ_obj2txt(
+            output.as_mut_ptr().cast(),
+            output
+                .len()
+                .try_into()
+                .map_err(|_| "OID text buffer exceeds OpenSSL integer range")?,
+            oid.as_ptr(),
+            1,
+        )
+    };
+    if written != length {
+        return Err("OpenSSL returned an inconsistent OID text length".into());
+    }
+    output.truncate(written as usize);
+    Ok(String::from_utf8(output)?)
+}
+
+fn directory_string(value: &openssl::asn1::Asn1StringRef) -> Result<String> {
+    match unsafe { ASN1_STRING_type(value.as_ptr()) } {
+        V_ASN1_PRINTABLESTRING | V_ASN1_UTF8STRING => {
+            Ok(std::str::from_utf8(value.as_slice())?.to_owned())
+        }
+        tag => Err(format!("Unsupported distinguished-name string tag {tag}").into()),
+    }
+}
+
+/// # Safety
+///
+/// `nid` must identify an extension decoded by OpenSSL as `STACK_OF(T)`.
+unsafe fn decoded_extension_stack<T>(
+    cert: &Certificate,
+    nid: c_int,
+    name: &str,
+) -> Result<Option<Stack<T>>>
+where
+    T: openssl::stack::Stackable,
+{
+    let mut status = -1;
+    let stack = X509_get_ext_d2i(cert.as_ptr(), nid, &mut status, std::ptr::null_mut());
+    if stack.is_null() {
+        return match status {
+            -1 => Ok(None),
+            -2 => Err(format!("Certificate contains duplicate {name} extensions").into()),
+            _ => Err(format!("OpenSSL failed to decode {name}").into()),
+        };
+    }
+    Ok(Some(Stack::from_ptr(stack.cast())))
+}
+
+fn decode_general_name(name: &GeneralNameRef) -> Result<GeneralName> {
+    let tag = unsafe { (*name.as_ptr()).type_ };
+    Ok(match tag {
+        GEN_EMAIL => GeneralName::Rfc822Name(ia5_string(name.email(), "rfc822Name")?),
+        GEN_DNS => GeneralName::DnsName(ia5_string(name.dnsname(), "dNSName")?),
+        GEN_URI => GeneralName::UniformResourceIdentifier(ia5_string(
+            name.uri(),
+            "uniformResourceIdentifier",
+        )?),
+        GEN_IPADD => {
+            let bytes = name
+                .ipaddress()
+                .ok_or("OpenSSL returned an invalid iPAddress")?;
+            if !matches!(bytes.len(), 4 | 16) {
+                return Err(format!("Invalid iPAddress GeneralName length {}", bytes.len()).into());
+            }
+            GeneralName::IpAddress(bytes.to_vec())
+        }
+        GEN_RID => {
+            let object: *mut openssl_sys::ASN1_OBJECT = unsafe { (*name.as_ptr()).d.cast() };
+            if object.is_null() {
+                return Err("OpenSSL returned a null registeredID".into());
+            }
+            GeneralName::RegisteredId(dotted_oid(unsafe { Asn1ObjectRef::from_ptr(object) })?)
+        }
+        GEN_OTHERNAME | GEN_X400 | GEN_DIRNAME | GEN_EDIPARTY => {
+            return Err(format!("Unsupported GeneralName tag {tag}").into());
+        }
+        _ => return Err(format!("Invalid GeneralName tag {tag}").into()),
+    })
+}
+
+fn ia5_string(value: Option<&str>, name: &str) -> Result<String> {
+    let value = value.ok_or_else(|| format!("OpenSSL returned an invalid {name}"))?;
+    if !value.is_ascii() {
+        return Err(format!("Non-ASCII {name}").into());
+    }
+    Ok(value.to_owned())
 }
 
 impl CryptoBackend for Crypto {

@@ -1,8 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{Certificate, CertificateBackend, Crypto, DigestAlgorithm};
+use crate::{
+    AttributeTypeAndValue, Certificate, CertificateBackend, Crypto, DigestAlgorithm, GeneralName,
+};
 use std::time::Duration;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test;
 
 const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
 const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
@@ -10,6 +15,13 @@ const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
 const GENOA_ARK: &[u8] = include_bytes!("test_data/genoa_ark.pem");
 const GENOA_ASK: &[u8] = include_bytes!("test_data/genoa_ask.pem");
 const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
+const DID_X509_DUPLICATE_SUBJECT: &[u8] =
+    include_bytes!("test_data/did_x509/duplicate-certificate-subject-attribute.der");
+const DID_X509_EKU: &[u8] = include_bytes!("test_data/did_x509/eku.der");
+const DID_X509_EMAIL_SAN: &[u8] = include_bytes!("test_data/did_x509/san.der");
+const DID_X509_URI_SAN: &[u8] = include_bytes!("test_data/did_x509/fulcio-issuer-with-uri-san.der");
+const DID_X509_IP_SAN: &[u8] =
+    include_bytes!("test_data/did_x509/unsupported-certificate-san-type.der");
 
 const EC_TEST_MESSAGE: &[u8] = b"tee-attestation-verification crypto ec curve test vector";
 const RSA_PSS_TEST_MESSAGE: &[u8] = b"tee-attestation-verification crypto rsa-pss test vector";
@@ -273,6 +285,97 @@ fn extension_lookup_rejects_malformed_oid() {
     let cert = cert(MILAN_VCEK);
 
     Crypto::get_extension_value_by_oid(&cert, "not-an-oid").expect_err("Malformed OID should fail");
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+fn typed_accessors_decode_existing_certificate() {
+    let cert = cert(MILAN_VCEK);
+
+    assert_eq!(
+        Crypto::subject_distinguished_name(&cert).expect("subject should decode"),
+        vec![
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.11".into(),
+                value: "Engineering".into(),
+            }],
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.6".into(),
+                value: "US".into(),
+            }],
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.7".into(),
+                value: "Santa Clara".into(),
+            }],
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.8".into(),
+                value: "CA".into(),
+            }],
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.10".into(),
+                value: "Advanced Micro Devices".into(),
+            }],
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.3".into(),
+                value: "SEV-VCEK".into(),
+            }],
+        ]
+    );
+    assert_eq!(
+        Crypto::subject_alt_names(&cert).expect("absent SAN should decode"),
+        vec![]
+    );
+    assert_eq!(
+        Crypto::extended_key_usage_oids(&cert).expect("absent EKU should decode"),
+        Vec::<String>::new()
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+fn typed_accessors_match_upstream_did_x509_vectors() {
+    let duplicate_subject =
+        Crypto::from_der(DID_X509_DUPLICATE_SUBJECT).expect("upstream subject vector should parse");
+    assert_eq!(
+        Crypto::subject_distinguished_name(&duplicate_subject)
+            .expect("duplicate attributes should remain visible"),
+        vec![
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.3".into(),
+                value: "Leaf".into(),
+            }],
+            vec![AttributeTypeAndValue {
+                oid: "2.5.4.3".into(),
+                value: "Other".into(),
+            }],
+        ]
+    );
+
+    let email = Crypto::from_der(DID_X509_EMAIL_SAN).expect("email SAN vector should parse");
+    assert_eq!(
+        Crypto::subject_alt_names(&email).expect("email SAN should decode"),
+        vec![GeneralName::Rfc822Name("user@example.com".into())]
+    );
+
+    let uri = Crypto::from_der(DID_X509_URI_SAN).expect("URI SAN vector should parse");
+    assert_eq!(
+        Crypto::subject_alt_names(&uri).expect("URI SAN should decode"),
+        vec![GeneralName::UniformResourceIdentifier(
+            "https://example.com/workflow".into()
+        )]
+    );
+
+    let ip = Crypto::from_der(DID_X509_IP_SAN).expect("IP SAN vector should parse");
+    assert_eq!(
+        Crypto::subject_alt_names(&ip).expect("IP SAN should decode"),
+        vec![GeneralName::IpAddress(vec![127, 0, 0, 1])]
+    );
+
+    let eku = Crypto::from_der(DID_X509_EKU).expect("EKU vector should parse");
+    assert_eq!(
+        Crypto::extended_key_usage_oids(&eku).expect("EKU should decode"),
+        vec!["1.3.6.1.5.5.7.3.3", "1.3.6.1.5.5.7.3.2"]
+    );
 }
 
 #[cfg(sync_crypto)]

@@ -65,6 +65,19 @@ tav_snp_attestation_report_measurement(report, &measurement, &measurement_len);
 tav_snp_attestation_report_free(report);
 ```
 
+To inspect fields before certificates are available, parse without verification:
+
+```c
+TavSnpAttestationReport *unverified_report = NULL;
+TavError *error = tav_snp_attestation_report_from_unverified_bytes(
+    report_bytes, report_len, &unverified_report);
+```
+
+This checks only that the input has the fixed SNP report size. Field values,
+reserved bytes, signatures, certificates, and TCBs remain untrusted. Field
+accessors accept this handle. Callers must not pass it to APIs requiring
+authenticated evidence, including `tav_verify_caci_attestation`.
+
 ## CACI verification
 
 CACI verification is staged: verify the SNP attestation and the UVM

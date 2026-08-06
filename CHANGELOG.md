@@ -4,6 +4,10 @@
 
 [1.0.6]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.6
 
+### Added
+
+- C and .NET FFI constructors for decoding SNP reports without verification. (#101)
+
 ### Changed
 
 - Updated the NuGet package README to consume C-ACI's published endorsement formats directly. (#98)

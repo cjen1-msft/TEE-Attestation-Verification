@@ -4,12 +4,12 @@
 //! ACI/UVM endorsement verification.
 //!
 //! This crate verifies an ACI COSE_Sign1 endorsement against a verified
-//! SEV-SNP attestation report and a caller-pinned `did:x509` root of trust.
+//! SEV-SNP attestation report and a caller-pinned `did:x509` trust policy.
 //!
 //! Verification is split into two independent stages plus a final binding step:
 //!
 //! 1. Verify the SEV-SNP attestation report and AMD endorsements.
-//! 2. Verify the UVM endorsement COSE, its `x5chain`, and its `did:x509` root.
+//! 2. Verify the UVM endorsement COSE, its `x5chain`, and its `did:x509` policy.
 //! 3. Bind the two verified artifacts by checking that the UVM launch
 //!    measurement matches the attestation report measurement.
 //!
@@ -27,9 +27,9 @@ use crypto::{AsyncCryptoBackend, AsyncKeyBackend};
 use crypto::{CryptoBackend, KeyBackend};
 
 #[cfg(sync_crypto)]
-use didx509::verify_didx509_root;
+use didx509::verify_didx509;
 #[cfg(async_crypto)]
-use didx509::verify_didx509_root_async;
+use didx509::verify_didx509_async;
 use parse::{parse_attestation, parse_x5chain_certs, required_bstr, required_int, required_text};
 
 pub use attestation::snp;
@@ -129,7 +129,7 @@ pub mod synchronous {
     /// Verify an ACI/UVM endorsement independently of the attestation report.
     ///
     /// This verifies the COSE_Sign1 signature, the `x5chain`, and that the
-    /// chain root matches `trusted_didx509`.
+    /// chain satisfies the root fingerprint and EKU policy in `trusted_didx509`.
     pub fn verify_uvm_endorsement(
         uvm_endorsement: &[u8],
         trusted_didx509: &str,
@@ -166,7 +166,7 @@ pub mod synchronous {
                     protected_header.map_at_str("iss").map_err(AciError::Cose)?,
                     "iss",
                 )?;
-                verify_didx509_root(trusted_didx509, &issuer, &x5chain)?;
+                verify_didx509(trusted_didx509, &issuer, &x5chain, &leaf)?;
 
                 let signing_time = protected_header
                     .map_at_str("signingtime")
@@ -195,7 +195,7 @@ pub mod synchronous {
                         .map_err(AciError::Cose)?,
                     "CWT iss",
                 )?;
-                verify_didx509_root(trusted_didx509, &issuer, &x5chain)?;
+                verify_didx509(trusted_didx509, &issuer, &x5chain, &leaf)?;
 
                 let signing_time = cwt_claims
                     .map_at_int(cose::CWT_CLAIMS_IAT)
@@ -252,7 +252,7 @@ pub mod synchronous {
     ///
     /// [`verify_attestation`] must be used to authenticate the SNP report before
     /// calling this function, and [`verify_uvm_endorsement`] must be used to
-    /// authenticate the UVM reference info and its did:x509 root.
+    /// authenticate the UVM reference info and its did:x509 policy.
     ///
     /// `trusted_caci_execution_policy` is the expected SHA-256 digest of the Confidential
     /// ACI security policy loaded into `SNP_HOST_DATA`. The returned value is the
@@ -356,7 +356,7 @@ pub mod asynchronous {
     /// Verify an ACI/UVM endorsement independently of the attestation report.
     ///
     /// This verifies the COSE_Sign1 signature, the `x5chain`, and that the
-    /// chain root matches `trusted_didx509`. This is stage 2 of the ACI flow;
+    /// chain satisfies the root fingerprint and EKU policy in `trusted_didx509`. This is stage 2 of the ACI flow;
     /// call [`verify_caci_attestation`] afterwards to bind the UVM
     /// endorsement to the verified attestation report and relying-party policy.
     pub async fn verify_uvm_endorsement(
@@ -394,7 +394,7 @@ pub mod asynchronous {
                     protected_header.map_at_str("iss").map_err(AciError::Cose)?,
                     "iss",
                 )?;
-                verify_didx509_root_async(trusted_didx509, &issuer, &x5chain).await?;
+                verify_didx509_async(trusted_didx509, &issuer, &x5chain, &leaf).await?;
 
                 let signing_time = protected_header
                     .map_at_str("signingtime")
@@ -424,7 +424,7 @@ pub mod asynchronous {
                         .map_err(AciError::Cose)?,
                     "CWT iss",
                 )?;
-                verify_didx509_root_async(trusted_didx509, &issuer, &x5chain).await?;
+                verify_didx509_async(trusted_didx509, &issuer, &x5chain, &leaf).await?;
 
                 let signing_time = cwt_claims
                     .map_at_int(cose::CWT_CLAIMS_IAT)
@@ -485,7 +485,7 @@ pub mod asynchronous {
     ///
     /// [`verify_attestation`] must be used to authenticate the SNP report before
     /// calling this function, and [`verify_uvm_endorsement`] must be used to
-    /// authenticate the UVM reference info and its did:x509 root.
+    /// authenticate the UVM reference info and its did:x509 policy.
     ///
     /// `trusted_caci_execution_policy` is the expected SHA-256 digest of the Confidential
     /// ACI security policy loaded into `SNP_HOST_DATA`. The returned value is the

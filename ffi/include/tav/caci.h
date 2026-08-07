@@ -41,7 +41,7 @@ extern "C" {
  */
 
 /*
- * Verify an ACI/UVM endorsement COSE blob against a caller-pinned did:x509 root.
+ * Verify an ACI/UVM endorsement COSE blob against a caller-pinned did:x509 policy.
  *
  * trusted_didx509 is a UTF-8 byte slice and does not need to be NUL-terminated.
  * out_uvm_endorsement must point to a writable handle slot. It is reset to NULL

@@ -41,3 +41,5 @@ let verified_report_data = tav::verify_caci_attestation(
     minimum_uvm_svn,
 )?;
 ```
+
+A trusted DID with an `eku` policy requires every listed OID in the leaf certificate's extended key usage. Without an `eku` policy, verification falls back to the root certificate fingerprint.

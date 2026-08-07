@@ -8,6 +8,10 @@
 
 - C and .NET FFI constructors for decoding SNP reports without verification. (#101)
 
+### Changed
+
+- Enforce `eku` policies in trusted `did:x509` identifiers during C-ACI endorsement verification.
+
 ## [1.0.6]
 
 [1.0.6]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.6

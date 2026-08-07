@@ -44,7 +44,7 @@ pub async fn verify_snp_attestation_with_cert_chain_async(
     Ok(SnpAttestationReport::from_verified_report(attestation))
 }
 
-/// Verify an ACI/UVM endorsement COSE blob with a caller-pinned did:x509 root.
+/// Verify an ACI/UVM endorsement COSE blob with a caller-pinned did:x509 policy.
 #[wasm_bindgen]
 #[cfg(async_crypto)]
 pub async fn verify_uvm_endorsement_async(

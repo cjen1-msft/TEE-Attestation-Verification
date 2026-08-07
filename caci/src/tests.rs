@@ -16,6 +16,13 @@ const REFERENCE_INFO_SCITT_CWT_BASE64: &str =
 const REPORT_SCITT_CWT_HEX: &str = include_str!("../tests/fixtures/report-scitt-cwt.hex");
 const TRUSTED_ACI_DIDX509: &str =
     "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s::eku:1.3.6.1.4.1.311.76.59.1.2";
+const WRONG_EKU_DIDX509: &str =
+    "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s::eku:1.3.6.1.5.5.7.3.3";
+const ROOT_ONLY_DIDX509: &str = "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s";
+const MULTIPLE_EKU_DIDX509: &str =
+    "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s::eku:1.3.6.1.4.1.311.76.59.1.2::eku:1.3.6.1.5.5.7.3.3";
+const UNSUPPORTED_POLICY_DIDX509: &str =
+    "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s::subject:CN:ContainerPlat";
 const ACI_FEED: &str = "ContainerPlat-AMD-UVM";
 const ACI_SVN: u64 = 104;
 const MILAN_CPUID: u32 = 0x00A00F11;
@@ -162,6 +169,26 @@ mod synchronous {
                     "issuer DID prefix did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s does not match trusted DID prefix did:x509:0:sha256:wrong"
                 ),
                 other => panic!("expected DidX509 error for {}, got {other:?}", fixture.name),
+            }
+
+            match crate::synchronous::verify_uvm_endorsement(
+                &reference_info,
+                WRONG_EKU_DIDX509,
+            ) {
+                Err(AciError::DidX509(actual)) => assert_eq!(
+                    actual,
+                    "leaf certificate extended key usage does not contain required OID 1.3.6.1.5.5.7.3.3"
+                ),
+                other => panic!("expected DidX509 error for {}, got {other:?}", fixture.name),
+            }
+
+            crate::synchronous::verify_uvm_endorsement(&reference_info, ROOT_ONLY_DIDX509).unwrap();
+
+            for trusted_didx509 in [MULTIPLE_EKU_DIDX509, UNSUPPORTED_POLICY_DIDX509] {
+                match crate::synchronous::verify_uvm_endorsement(&reference_info, trusted_didx509) {
+                    Err(AciError::DidX509(_)) => {}
+                    other => panic!("expected DidX509 error for {}, got {other:?}", fixture.name),
+                }
             }
 
             let mut tampered_signature = reference_info;
@@ -513,6 +540,32 @@ mod asynchronous {
                     "issuer DID prefix did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s does not match trusted DID prefix did:x509:0:sha256:wrong"
                 ),
                 other => panic!("expected DidX509 error for {}, got {other:?}", fixture.name),
+            }
+
+            match crate::asynchronous::verify_uvm_endorsement(
+                &reference_info,
+                WRONG_EKU_DIDX509,
+            )
+            .await
+            {
+                Err(AciError::DidX509(actual)) => assert_eq!(
+                    actual,
+                    "leaf certificate extended key usage does not contain required OID 1.3.6.1.5.5.7.3.3"
+                ),
+                other => panic!("expected DidX509 error for {}, got {other:?}", fixture.name),
+            }
+
+            crate::asynchronous::verify_uvm_endorsement(&reference_info, ROOT_ONLY_DIDX509)
+                .await
+                .unwrap();
+
+            for trusted_didx509 in [MULTIPLE_EKU_DIDX509, UNSUPPORTED_POLICY_DIDX509] {
+                match crate::asynchronous::verify_uvm_endorsement(&reference_info, trusted_didx509)
+                    .await
+                {
+                    Err(AciError::DidX509(_)) => {}
+                    other => panic!("expected DidX509 error for {}, got {other:?}", fixture.name),
+                }
             }
 
             let mut tampered_signature = reference_info;

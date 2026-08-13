@@ -1196,7 +1196,7 @@ name = "tee-attestation-verification-crypto"
 version = "1.0.7"
 dependencies = [
  "ecdsa",
- "foreign-types",
+ "foreign-types-shared",
  "js-sys",
  "openssl",
  "openssl-sys",

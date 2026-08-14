@@ -9,7 +9,10 @@
 
 use std::sync::Arc;
 
-use cose::CborValue as NativeCborValue;
+use cose::CborValue;
+
+/// A document detached from any input buffer, so the view can own it.
+pub(crate) type NativeCborValue = CborValue<'static>;
 
 #[derive(Clone)]
 pub struct CborView {
@@ -18,8 +21,9 @@ pub struct CborView {
 }
 
 impl CborView {
-    pub(crate) fn new(value: NativeCborValue) -> Self {
-        let document = Arc::new(value);
+    /// Detaches `value` from any input buffer, which a view outlives.
+    pub(crate) fn new(value: CborValue<'_>) -> Self {
+        let document = Arc::new(value.into_owned());
         let node = Arc::as_ptr(&document);
         Self { document, node }
     }

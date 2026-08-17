@@ -27,6 +27,12 @@ updates:
         patterns:
           - "getrandom"
           - "rand"
+      # OpenSSL pointer traits must match the versions used by its bindings.
+      openssl:
+        patterns:
+          - "foreign-types-shared"
+          - "openssl"
+          - "openssl-sys"
 
   - package-ecosystem: "github-actions"
     directory: "/"

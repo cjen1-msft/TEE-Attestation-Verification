@@ -94,7 +94,7 @@ impl NativeCertificate {
             unsafe { Crypto32::CertCreateCertificateContext(Crypto32::X509_ASN_ENCODING, der) };
         NonNull::new(context)
             .map(Self)
-            .ok_or_else(|| windows::core::Error::from_win32().into())
+            .ok_or_else(|| windows::core::Error::from_thread().into())
     }
 
     fn as_ptr(&self) -> *const Crypto32::CERT_CONTEXT {
@@ -292,7 +292,7 @@ impl CertificateBackend for Crypto {
             let output = output.map(|output| PSTR(output.as_mut_ptr()));
             if !unsafe { Crypto32::CryptBinaryToStringA(cert.der(), flags, output, len) }.as_bool()
             {
-                return Err(windows::core::Error::from_win32().into());
+                return Err(windows::core::Error::from_thread().into());
             }
             Ok(())
         })?;
@@ -686,7 +686,7 @@ fn name(value: &Crypto32::CRYPT_INTEGER_BLOB) -> Result<String> {
             )
         };
         if *len == 0 {
-            Err(windows::core::Error::from_win32().into())
+            Err(windows::core::Error::from_thread().into())
         } else {
             Ok(())
         }

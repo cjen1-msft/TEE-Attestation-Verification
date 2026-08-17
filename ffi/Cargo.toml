@@ -39,10 +39,10 @@ crypto_windows = [
 ]
 
 [dependencies]
-attestation = { package = "tee-attestation-verification-lib", version = "1.0.7", path = "../attestation", default-features = false }
-caci = { package = "tee-attestation-verification-caci", version = "1.0.7", path = "../caci", default-features = false }
-cose = { package = "tee-attestation-verification-cose", version = "1.0.7", path = "../cose", default-features = false }
-crypto = { package = "tee-attestation-verification-crypto", version = "1.0.7", path = "../crypto", default-features = false }
+attestation = { package = "tee-attestation-verification-lib", version = "=1.0.7", path = "../attestation", default-features = false }
+caci = { package = "tee-attestation-verification-caci", version = "=1.0.7", path = "../caci", default-features = false }
+cose = { package = "tee-attestation-verification-cose", version = "=1.0.7", path = "../cose", default-features = false }
+crypto = { package = "tee-attestation-verification-crypto", version = "=1.0.7", path = "../crypto", default-features = false }
 serde_json = ">=1, <2"
 zerocopy = { version = ">=0.8, <0.9", features = ["derive"] }
 

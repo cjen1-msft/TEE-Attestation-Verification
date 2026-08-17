@@ -16,6 +16,12 @@ updates:
           - "p256"
           - "p384"
           - "p521"
+      # X.509 signature parsing exchanges DER, OID, and PKCS#1 types.
+      rsa-x509:
+        patterns:
+          - "pkcs1"
+          - "rsa"
+          - "x509-cert"
 
   - package-ecosystem: "github-actions"
     directory: "/"

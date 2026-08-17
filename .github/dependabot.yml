@@ -22,6 +22,11 @@ updates:
           - "pkcs1"
           - "rsa"
           - "x509-cert"
+      # rand's OS-backed generators and getrandom's WASM support move together.
+      random:
+        patterns:
+          - "getrandom"
+          - "rand"
 
   - package-ecosystem: "github-actions"
     directory: "/"

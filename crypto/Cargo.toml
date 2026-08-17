@@ -28,38 +28,38 @@ crypto_webcrypto = ["dep:pkcs1", "dep:x509-cert"]
 crypto_windows = ["dep:windows"]
 
 [dependencies]
-foreign-types-shared = { version = "0.1", optional = true }
-ecdsa = { version = "0.17", features = ["der"], default-features = false, optional = true }
-p256 = { version = "0.14", features = ["ecdsa", "pkcs8"], default-features = false, optional = true }
-p384 = { version = "0.14", features = ["ecdsa", "pkcs8"], default-features = false, optional = true }
-p521 = { version = "0.14", features = ["ecdsa", "pkcs8"], default-features = false, optional = true }
-pkcs1 = { version = "0.7", optional = true }
-rsa = { version = "0.9", default-features = false, optional = true }
-sha2 = { version = "0.11", features = ["oid"], optional = true }
-sha2_10 = { package = "sha2", version = "0.10", features = ["oid"], optional = true }
-x509-cert = { version = "0.2", optional = true }
+foreign-types-shared = { version = ">=0.1, <0.2", optional = true }
+ecdsa = { version = ">=0.17, <0.18", features = ["der"], default-features = false, optional = true }
+p256 = { version = ">=0.14, <0.15", features = ["ecdsa", "pkcs8"], default-features = false, optional = true }
+p384 = { version = ">=0.14, <0.15", features = ["ecdsa", "pkcs8"], default-features = false, optional = true }
+p521 = { version = ">=0.14, <0.15", features = ["ecdsa", "pkcs8"], default-features = false, optional = true }
+pkcs1 = { version = ">=0.7, <0.8", optional = true }
+rsa = { version = ">=0.9, <0.10", default-features = false, optional = true }
+sha2 = { version = ">=0.11, <0.12", features = ["oid"], optional = true }
+sha2_10 = { package = "sha2", version = ">=0.10, <0.11", features = ["oid"], optional = true }
+x509-cert = { version = ">=0.2, <0.3", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-openssl = { version = "0.10", optional = true }
-openssl-sys = { version = "0.9", optional = true }
+openssl = { version = ">=0.10, <0.11", optional = true }
+openssl-sys = { version = ">=0.9, <0.10", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # 0.61 supports the workspace MSRV while exposing the required Crypt32 and CNG APIs.
-windows = { version = "0.61.3", optional = true, features = [
+windows = { version = ">=0.61.3, <0.62", optional = true, features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",
 ] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-js-sys = "0.3"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
+js-sys = ">=0.3, <0.4"
+wasm-bindgen = ">=0.2, <0.3"
+wasm-bindgen-futures = ">=0.4, <0.5"
 
 [dev-dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-rand = "0.8"
-sha2 = { version = "0.11", features = ["oid"] }
-wasm-bindgen-test = "0.3"
+getrandom = { version = ">=0.2, <0.3", features = ["js"] }
+rand = ">=0.8, <0.9"
+sha2 = { version = ">=0.11, <0.12", features = ["oid"] }
+wasm-bindgen-test = ">=0.3, <0.4"
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = ">=1, <2", features = ["rt-multi-thread", "macros"] }

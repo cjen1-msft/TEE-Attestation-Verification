@@ -9,13 +9,30 @@ updates:
     cooldown:
       default-days: 5
     groups:
-      rustcrypto:
+      # The curve crates exchange RustCrypto key and signature types.
+      elliptic-curves:
         patterns:
           - "ecdsa"
           - "p256"
           - "p384"
           - "p521"
-          - "sha2"
+      # X.509 signature parsing exchanges DER, OID, and PKCS#1 types.
+      rsa-x509:
+        patterns:
+          - "pkcs1"
+          - "rsa"
+          - "x509-cert"
+      # rand's OS-backed generators and getrandom's WASM support move together.
+      random:
+        patterns:
+          - "getrandom"
+          - "rand"
+      # OpenSSL pointer traits must match the versions used by its bindings.
+      openssl:
+        patterns:
+          - "foreign-types-shared"
+          - "openssl"
+          - "openssl-sys"
 
   - package-ecosystem: "github-actions"
     directory: "/"

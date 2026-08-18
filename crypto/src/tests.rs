@@ -466,16 +466,18 @@ mod async_tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     async fn digest_matches_rustcrypto_on_random_data() {
-        use rand::{rngs::OsRng, rngs::StdRng, Rng, RngCore, SeedableRng};
+        use rand::{rngs::StdRng, rngs::SysRng, Rng, RngExt, SeedableRng, TryRng};
         use sha2::{Digest, Sha256, Sha384, Sha512};
 
-        let seed = OsRng.next_u64();
+        let seed = SysRng
+            .try_next_u64()
+            .expect("system RNG should provide a test seed");
         eprintln!("digest random seed: {seed:#018x}");
         let mut random = StdRng::seed_from_u64(seed);
 
         for _ in 0..1024 {
-            let max_len = 1usize << random.gen_range(0..=13);
-            let mut data = vec![0; random.gen_range(0..=max_len)];
+            let max_len = 1usize << random.random_range(0..=13);
+            let mut data = vec![0; random.random_range(0..=max_len)];
             random.fill_bytes(&mut data);
 
             assert_eq!(

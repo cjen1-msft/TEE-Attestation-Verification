@@ -102,24 +102,5 @@ jobs:
         run: ctest --test-dir target/c-consumer-tests --output-on-failure
 
   ffi-csharp-api:
-    name: FFI C# API consumer tests (Linux x64)
-    runs-on: ubuntu-22.04
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install rust
-        run: |
-          rustup update stable && rustup default stable
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: "8.0.423"
-
-      - name: Install OpenSSL build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
-
-      - name: Run C# native API consumer tests
-        shell: bash
-        run: python3 ffi/csharp/run_tests.py --configuration Release
+    name: FFI C# API consumer tests
+    uses: ./.github/workflows/csharp-package.yml

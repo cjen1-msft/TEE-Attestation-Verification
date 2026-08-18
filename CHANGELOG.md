@@ -8,6 +8,7 @@
 
 - C and .NET FFI constructors for decoding SNP reports without verification. (#101)
 - Windows CNG crypto provider. (#100)
+- Windows and macOS x64 native libraries in the .NET NuGet package.
 
 ## [1.0.6]
 

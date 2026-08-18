@@ -11,10 +11,9 @@ that package, and run the tests without rebuilding the binding from source.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import os
 import pathlib
-import re
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -32,21 +31,15 @@ TEST_PROJECT = (
     / "TeeAttestationVerification.Tests"
     / "TeeAttestationVerification.Tests.csproj"
 )
-NATIVE_ASSET = (
-    "runtimes/linux-x64/native/libtee_attestation_verification_ffi.so"
-)
-EXPECTED_NATIVE_DEPENDENCIES = frozenset(
+NATIVE_ASSETS = frozenset(
     {
-        "ld-linux-x86-64.so.2",
-        "libc.so.6",
-        "libcrypto.so.3",
-        "libgcc_s.so.1",
-        "libssl.so.3",
+        "runtimes/linux-x64/native/libtee_attestation_verification_ffi.so",
+        "runtimes/osx-x64/native/libtee_attestation_verification_ffi.dylib",
+        "runtimes/win-x64/native/tee_attestation_verification_ffi.dll",
     }
 )
-LOCK_FILE = (
-    pathlib.Path(tempfile.gettempdir())
-    / "tee-attestation-verification-csharp-tests.lock"
+LOCAL_NATIVE_ASSETS = frozenset(
+    {"runtimes/linux-x64/native/libtee_attestation_verification_ffi.so"}
 )
 
 
@@ -63,7 +56,22 @@ def test_package_version() -> str:
     return f"{version}-test.{uuid.uuid4().hex[:12]}"
 
 
-def verify_package(package: pathlib.Path, native_library: pathlib.Path) -> None:
+def package_version(package: pathlib.Path) -> str:
+    with zipfile.ZipFile(package) as archive:
+        nuspecs = [name for name in archive.namelist() if name.endswith(".nuspec")]
+        if len(nuspecs) != 1:
+            raise RuntimeError(f"Expected one nuspec in {package}, found {nuspecs}")
+        root = ElementTree.fromstring(archive.read(nuspecs[0]))
+
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] == "version" and element.text:
+            return element.text
+    raise RuntimeError(f"{package} nuspec does not define a version")
+
+
+def verify_package(
+    package: pathlib.Path, expected_native_assets: frozenset[str]
+) -> None:
     with zipfile.ZipFile(package) as archive:
         entries = set(archive.namelist())
         expected_managed = "lib/net8.0/TeeAttestationVerification.dll"
@@ -72,34 +80,62 @@ def verify_package(package: pathlib.Path, native_library: pathlib.Path) -> None:
             raise RuntimeError(f"{package} does not contain {expected_managed}")
         if expected_documentation not in entries:
             raise RuntimeError(f"{package} does not contain {expected_documentation}")
-        if NATIVE_ASSET not in entries:
-            raise RuntimeError(f"{package} does not contain {NATIVE_ASSET}")
+        native_assets = frozenset(
+            entry
+            for entry in entries
+            if entry.startswith("runtimes/") and "/native/" in entry
+        )
+        if native_assets != expected_native_assets:
+            raise RuntimeError(
+                f"{package} native assets differ: expected "
+                f"{sorted(expected_native_assets)}, found {sorted(native_assets)}"
+            )
         if any(
             "libssl" in entry.lower() or "libcrypto" in entry.lower()
             for entry in entries
         ):
             raise RuntimeError("OpenSSL libraries must not be bundled in the package")
-        native_library.write_bytes(archive.read(NATIVE_ASSET))
 
-    dynamic_section = subprocess.run(
-        ["readelf", "--dynamic", "--wide", str(native_library)],
-        check=True,
-        capture_output=True,
-        env={**os.environ, "LC_ALL": "C"},
-        text=True,
-    ).stdout
-    dependencies = frozenset(
-        re.findall(r"\(NEEDED\).*Shared library: \[([^]]+)]", dynamic_section)
+
+def find_package(path: pathlib.Path) -> pathlib.Path:
+    if path.is_file():
+        return path
+    packages = list(path.glob("TeeAttestationVerification.*.nupkg"))
+    if len(packages) != 1:
+        raise RuntimeError(f"Expected one package in {path}, found {len(packages)}")
+    return packages[0]
+
+
+def write_nuget_config(path: pathlib.Path, feed: pathlib.Path) -> None:
+    configuration = ElementTree.Element("configuration")
+    sources = ElementTree.SubElement(configuration, "packageSources")
+    ElementTree.SubElement(sources, "clear")
+    ElementTree.SubElement(
+        sources, "add", key="test-feed", value=str(feed)
     )
-    if dependencies != EXPECTED_NATIVE_DEPENDENCIES:
-        raise RuntimeError(
-            f"{NATIVE_ASSET} dependencies differ: expected "
-            f"{sorted(EXPECTED_NATIVE_DEPENDENCIES)}, found {sorted(dependencies)}"
-        )
+    ElementTree.SubElement(
+        sources,
+        "add",
+        key="nuget.org",
+        value="https://api.nuget.org/v3/index.json",
+    )
+    mappings = ElementTree.SubElement(configuration, "packageSourceMapping")
+    local_mapping = ElementTree.SubElement(
+        mappings, "packageSource", key="test-feed"
+    )
+    ElementTree.SubElement(
+        local_mapping, "package", pattern="TeeAttestationVerification"
+    )
+    public_mapping = ElementTree.SubElement(
+        mappings, "packageSource", key="nuget.org"
+    )
+    ElementTree.SubElement(public_mapping, "package", pattern="*")
+    ElementTree.ElementTree(configuration).write(
+        path, encoding="utf-8", xml_declaration=True
+    )
 
 
-def run_tests(configuration: str) -> None:
-    version = test_package_version()
+def run_tests(configuration: str, supplied_package: pathlib.Path | None) -> None:
     with tempfile.TemporaryDirectory(prefix="tav-csharp-tests-") as temporary:
         temp = pathlib.Path(temporary)
         feed = temp / "feed"
@@ -107,28 +143,33 @@ def run_tests(configuration: str) -> None:
         env = os.environ.copy()
         env["NUGET_PACKAGES"] = str(temp / "packages")
 
-        run(
-            [
-                "dotnet",
-                "pack",
-                str(PACKAGE_PROJECT),
-                "--configuration",
-                configuration,
-                "--output",
-                str(feed),
-                f"-p:PackageVersion={version}",
-            ],
-            env=env,
-        )
+        if supplied_package is None:
+            version = test_package_version()
+            run(
+                [
+                    "dotnet",
+                    "pack",
+                    str(PACKAGE_PROJECT),
+                    "--configuration",
+                    configuration,
+                    "--output",
+                    str(feed),
+                    f"-p:PackageVersion={version}",
+                ],
+                env=env,
+            )
+            package = find_package(feed)
+            expected_native_assets = LOCAL_NATIVE_ASSETS
+        else:
+            package = find_package(supplied_package.resolve())
+            shutil.copy2(package, feed)
+            package = feed / package.name
+            version = package_version(package)
+            expected_native_assets = NATIVE_ASSETS
 
-        packages = list(feed.glob("TeeAttestationVerification.*.nupkg"))
-        if len(packages) != 1:
-            raise RuntimeError(f"Expected one package, found {len(packages)}")
-        package = packages[0]
-        expected_name = f"TeeAttestationVerification.{version}.nupkg"
-        if package.name != expected_name:
-            raise RuntimeError(f"Expected {expected_name}, got {package.name}")
-        verify_package(package, temp / "libtee_attestation_verification_ffi.so")
+        verify_package(package, expected_native_assets)
+        nuget_config = temp / "NuGet.Config"
+        write_nuget_config(nuget_config, feed)
 
         common_properties = [
             f"-p:TavPackageVersion={version}",
@@ -138,10 +179,8 @@ def run_tests(configuration: str) -> None:
                 "dotnet",
                 "restore",
                 str(TEST_PROJECT),
-                "--source",
-                str(feed),
-                "--source",
-                "https://api.nuget.org/v3/index.json",
+                "--configfile",
+                str(nuget_config),
                 *common_properties,
             ],
             env=env,
@@ -165,11 +204,14 @@ def main() -> int:
         description="Pack TeeAttestationVerification and run its public consumer tests"
     )
     parser.add_argument("--configuration", default="Release")
+    parser.add_argument(
+        "--package",
+        type=pathlib.Path,
+        help="Existing package file or directory to test without rebuilding",
+    )
     args = parser.parse_args()
 
-    with LOCK_FILE.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        run_tests(args.configuration)
+    run_tests(args.configuration, args.package)
 
     return 0
 

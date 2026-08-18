@@ -1,7 +1,7 @@
 # TeeAttestationVerification for .NET
 
-Linux x64 .NET 8 bindings for verifying SNP and CACI attestations through the
-repository's native C ABI.
+Cross-platform x64 .NET 8 bindings for verifying SNP and CACI attestations
+through the repository's native C ABI.
 
 ## Install
 
@@ -11,11 +11,14 @@ Add the package from your configured NuGet feed:
 dotnet add package TeeAttestationVerification --version 1.0.7
 ```
 
-The runtime environment must provide:
+Supported runtime identifiers:
 
-- a Linux x64 process;
-- glibc 2.35 or newer;
-- OpenSSL 3 (`libssl.so.3` and `libcrypto.so.3`).
+- `linux-x64` with glibc 2.35 or newer and OpenSSL 3;
+- `osx-x64` with OpenSSL 3;
+- `win-x64` on Windows 10 or Windows Server 2016 and newer.
+
+ARM platforms are not currently supported. OpenSSL must be installed separately
+on Linux and macOS; on macOS, it is available from Homebrew as `openssl@3`.
 
 ## Inspect an unverified SNP report
 
@@ -118,8 +121,8 @@ Load trusted policy digests and the minimum SVN from relying-party
 configuration.
 
 Native calls fail with `DllNotFoundException` when the package does not carry a
-native asset for the running platform, or when the OpenSSL 3 runtime libraries
-are missing.
+native asset for the running platform, or when required OpenSSL 3 runtime
+libraries are missing.
 
 ## Ownership and errors
 
@@ -138,15 +141,14 @@ Run from `ffi/csharp`:
 python3 run_tests.py --configuration Release
 ```
 
-The runner packs a uniquely versioned NuGet into a temporary feed, restores the
-public xUnit consumer suite against that exact package, and tests the complete
-NuGet → C# → C ABI → Rust path. It also checks the package layout and OpenSSL
-dependencies.
+The runner packs a uniquely versioned Linux development NuGet into a temporary
+feed, restores the public xUnit consumer suite against that exact package, and
+tests the complete NuGet → C# → C ABI → Rust path.
 
 Source builds require Rust, the OpenSSL development headers, and `pkg-config`.
 The MSBuild project invokes Cargo with `crypto_openssl` for every build.
 
-To create a release package:
+To create a local Linux development package:
 
 ```bash
 dotnet pack \
@@ -154,5 +156,7 @@ dotnet pack \
   --configuration Release
 ```
 
-The native asset is packaged at
+The local native asset is packaged at
 `runtimes/linux-x64/native/libtee_attestation_verification_ffi.so`.
+Release packages are built in CI from native assets produced on all three host
+operating systems.

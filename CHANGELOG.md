@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## [1.0.8]
+
+[1.0.8]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.8
 
 ### Removed
 

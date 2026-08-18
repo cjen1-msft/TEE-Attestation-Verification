@@ -701,7 +701,6 @@ mod tests {
                 .expect_err("Zeroed signature should not verify");
         }
 
-        #[cfg(all(feature = "crypto_pure_rust", not(feature = "crypto_openssl")))]
         #[test]
         fn nonzero_r_scalar_padding_fails() {
             let vcek = cert(MILAN_VCEK);
@@ -717,7 +716,6 @@ mod tests {
             );
         }
 
-        #[cfg(all(feature = "crypto_pure_rust", not(feature = "crypto_openssl")))]
         #[test]
         fn nonzero_s_scalar_padding_fails() {
             let vcek = cert(MILAN_VCEK);

@@ -17,5 +17,5 @@ crypto_webcrypto = ["crypto/crypto_webcrypto"]
 crypto_windows = ["crypto/crypto_windows"]
 
 [dependencies]
-cbor = { package = "tee-attestation-verification-cbor", version = "=1.0.7", path = "../cbor" }
-crypto = { package = "tee-attestation-verification-crypto", version = "=1.0.7", path = "../crypto", default-features = false }
+cbor = { package = "tee-attestation-verification-cbor", version = "1.0.7", path = "../cbor" }
+crypto = { package = "tee-attestation-verification-crypto", version = "1.0.7", path = "../crypto", default-features = false }

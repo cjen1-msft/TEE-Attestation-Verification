@@ -8,7 +8,7 @@ through the repository's native C ABI.
 Add the package from your configured NuGet feed:
 
 ```bash
-dotnet add package TeeAttestationVerification --version 1.0.7
+dotnet add package TeeAttestationVerification --version 1.0.8
 ```
 
 Supported runtime identifiers:

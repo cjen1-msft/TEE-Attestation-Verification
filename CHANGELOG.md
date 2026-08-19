@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## [1.0.8]
+
+[1.0.8]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.8
 
 ### Removed
 
-- Removed the `crypto_pure_rust` backend and feature from all crates.
+- Removed the `crypto_pure_rust` backend and feature from all crates. (#131)
 
 ## [1.0.7]
 

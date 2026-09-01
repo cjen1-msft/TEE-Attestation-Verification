@@ -4,6 +4,10 @@
 
 [1.0.8]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.8
 
+### Added
+
+- Handle-based CBOR API for C++ in the `tee-attestation-verification-ffi` crate, with independently owned navigation handles, for building, parsing, serializing and inspecting CBOR. The supported interface is the `<tav/cbor.hpp>` wrapper; the C ABI beneath it is an implementation detail of that header. (#133)
+
 ### Removed
 
 - Removed the `crypto_pure_rust` backend and feature from all crates. (#131)

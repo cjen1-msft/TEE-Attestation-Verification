@@ -4,12 +4,16 @@
 use crate::{Certificate, CertificateBackend, Crypto, DigestAlgorithm};
 use std::time::Duration;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_test::wasm_bindgen_test;
+
 const MILAN_ARK: &[u8] = include_bytes!("test_data/milan_ark.pem");
 const MILAN_ASK: &[u8] = include_bytes!("test_data/milan_ask.pem");
 const MILAN_VCEK: &[u8] = include_bytes!("test_data/milan_vcek.pem");
 const GENOA_ARK: &[u8] = include_bytes!("test_data/genoa_ark.pem");
 const GENOA_ASK: &[u8] = include_bytes!("test_data/genoa_ask.pem");
 const GENOA_VCEK: &[u8] = include_bytes!("test_data/genoa_vcek.pem");
+const SELF_SIGNED_LEAF: &[u8] = include_bytes!("test_data/self_signed_leaf.pem");
 
 const EC_TEST_MESSAGE: &[u8] = b"tee-attestation-verification crypto ec curve test vector";
 const RSA_PSS_TEST_MESSAGE: &[u8] = b"tee-attestation-verification crypto rsa-pss test vector";
@@ -259,6 +263,40 @@ fn certificate_parse_and_encode_wrappers_round_trip() {
     );
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+fn mismatched_pem_boundaries_are_rejected() {
+    let fixture = std::str::from_utf8(MILAN_ARK).expect("certificate PEM should be UTF-8");
+
+    for (begin, end) in [
+        ("CERTIFICATE", "X509 CERTIFICATE"),
+        ("X509 CERTIFICATE", "CERTIFICATE"),
+    ] {
+        let pem = fixture
+            .replace("BEGIN CERTIFICATE", &format!("BEGIN {begin}"))
+            .replace("END CERTIFICATE", &format!("END {end}"));
+        Crypto::from_pem_chain(pem.as_bytes())
+            .expect_err("mismatched PEM boundaries must be rejected");
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+fn certificate_extension_lookup_returns_native_value_bytes() {
+    let vcek = cert(MILAN_VCEK);
+
+    assert_eq!(
+        Crypto::get_extension_value_by_oid(&vcek, "1.3.6.1.4.1.3704.1.3.1")
+            .expect("BootLoader OID lookup should succeed"),
+        Some(vec![0x02, 0x01, 0x04])
+    );
+    assert_eq!(
+        Crypto::get_extension_value_by_oid(&vcek, "1.2.3.4.5.6.7.8.9")
+            .expect("Missing OID lookup should succeed"),
+        None
+    );
+}
+
 #[test]
 fn certificate_parse_wrappers_reject_invalid_input() {
     let malformed_pem = b"-----BEGIN CERTIFICATE-----\nnot-base64\n-----END CERTIFICATE-----\n";
@@ -273,6 +311,48 @@ fn extension_lookup_rejects_malformed_oid() {
     let cert = cert(MILAN_VCEK);
 
     Crypto::get_extension_value_by_oid(&cert, "not-an-oid").expect_err("Malformed OID should fail");
+}
+
+#[test]
+fn basic_constraints_decode_from_a_certificate_authority() {
+    let constraints = Crypto::basic_constraints(&cert(MILAN_ASK))
+        .expect("Basic constraints should decode")
+        .expect("ASK should have basic constraints");
+
+    assert!(constraints.critical);
+    assert!(constraints.ca);
+    assert_eq!(constraints.path_len_constraint, Some(0));
+
+    assert_eq!(
+        Crypto::basic_constraints(&cert(MILAN_VCEK)).expect("Basic constraints should decode"),
+        None
+    );
+}
+
+#[test]
+fn key_usage_decodes_certificate_signing() {
+    let usage = Crypto::key_usage(&cert(MILAN_ASK))
+        .expect("Key usage should decode")
+        .expect("ASK should have key usage");
+
+    assert!(usage.key_cert_sign);
+
+    assert_eq!(
+        Crypto::key_usage(&cert(MILAN_VCEK)).expect("Key usage should decode"),
+        None
+    );
+}
+
+#[test]
+fn critical_extension_oids_list_the_critical_extensions() {
+    let oids = Crypto::critical_extension_oids(&cert(MILAN_ASK));
+
+    assert!(oids.iter().any(|oid| oid == "2.5.29.19"));
+    assert!(oids
+        .iter()
+        .all(|oid| Crypto::extension_criticality(&cert(MILAN_ASK), oid)
+            .expect("Criticality should decode")
+            == Some(true)));
 }
 
 #[cfg(sync_crypto)]
@@ -325,6 +405,12 @@ mod sync_tests {
     }
 
     #[test]
+    fn self_signed_target_may_be_its_own_trust_anchor() {
+        let target = cert(SELF_SIGNED_LEAF);
+        <Crypto as CryptoBackend>::verify_chain(&target, &[], &target, None).unwrap();
+    }
+
+    #[test]
     fn genoa_substitution_in_milan_chain_fails() {
         <Crypto as CryptoBackend>::verify_chain(
             &cert(GENOA_ARK),
@@ -373,6 +459,47 @@ mod async_tests {
                     .await
                     .expect("digest should work"),
                 expected
+            );
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    async fn digest_matches_rustcrypto_on_random_data() {
+        use rand::{rngs::StdRng, rngs::SysRng, Rng, RngExt, SeedableRng, TryRng};
+        use sha2::{Digest, Sha256, Sha384, Sha512};
+
+        let seed = SysRng
+            .try_next_u64()
+            .expect("system RNG should provide a test seed");
+        eprintln!("digest random seed: {seed:#018x}");
+        let mut random = StdRng::seed_from_u64(seed);
+
+        for _ in 0..1024 {
+            let max_len = 1usize << random.random_range(0..=13);
+            let mut data = vec![0; random.random_range(0..=max_len)];
+            random.fill_bytes(&mut data);
+
+            assert_eq!(
+                <Crypto as AsyncCryptoBackend>::digest(DigestAlgorithm::Sha256, &data)
+                    .await
+                    .expect("SHA-256 should work"),
+                Sha256::digest(&data).to_vec(),
+                "SHA-256 mismatch with seed {seed:#018x}"
+            );
+            assert_eq!(
+                <Crypto as AsyncCryptoBackend>::digest(DigestAlgorithm::Sha384, &data)
+                    .await
+                    .expect("SHA-384 should work"),
+                Sha384::digest(&data).to_vec(),
+                "SHA-384 mismatch with seed {seed:#018x}"
+            );
+            assert_eq!(
+                <Crypto as AsyncCryptoBackend>::digest(DigestAlgorithm::Sha512, &data)
+                    .await
+                    .expect("SHA-512 should work"),
+                Sha512::digest(&data).to_vec(),
+                "SHA-512 mismatch with seed {seed:#018x}"
             );
         }
     }
@@ -558,6 +685,15 @@ mod async_tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     async fn self_signed_certificates() {
         <Crypto as AsyncCryptoBackend>::verify_chain(&cert(MILAN_ARK), &[], &cert(MILAN_ARK), None)
+            .await
+            .unwrap();
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    async fn self_signed_target_may_be_its_own_trust_anchor() {
+        let target = cert(SELF_SIGNED_LEAF);
+        <Crypto as AsyncCryptoBackend>::verify_chain(&target, &[], &target, None)
             .await
             .unwrap();
     }

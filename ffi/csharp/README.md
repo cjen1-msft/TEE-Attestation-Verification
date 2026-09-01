@@ -1,80 +1,128 @@
 # TeeAttestationVerification for .NET
 
-Linux x64 .NET 8 bindings for verifying SNP and CACI attestations through the
-repository's native C ABI.
+Cross-platform x64 .NET 8 bindings for verifying SNP and CACI attestations
+through the repository's native C ABI.
 
 ## Install
 
 Add the package from your configured NuGet feed:
 
 ```bash
-dotnet add package TeeAttestationVerification --version 1.0.4
+dotnet add package TeeAttestationVerification --version 1.0.8
 ```
 
-The runtime environment must provide:
+Supported runtime identifiers:
 
-- a Linux x64 process;
-- glibc 2.35 or newer;
-- OpenSSL 3 (`libssl.so.3` and `libcrypto.so.3`).
+- `linux-x64` with glibc 2.35 or newer and OpenSSL 3;
+- `osx-x64` with OpenSSL 3;
+- `win-x64` on Windows 10 or Windows Server 2016 and newer.
+
+ARM platforms are not currently supported. OpenSSL must be installed separately
+on Linux and macOS; on macOS, it is available from Homebrew as `openssl@3`.
+
+## Inspect an unverified SNP report
+
+```csharp
+using SnpAttestationReport report =
+    SnpAttestationReport.FromUnverifiedBytes(reportBytes);
+byte[] chipId = report.ChipId();
+```
+
+`FromUnverifiedBytes` checks only that the input has the fixed SNP report size.
+Field values, reserved bytes, signatures, certificates, and TCBs remain
+untrusted. Use `VerifySnpAttestation` before making trust decisions, and do not
+pass an unverified report to `VerifyCaciAttestation`.
 
 ## Verify a CACI attestation
 
+Confidential ACI publishes `host-amd-cert-base64` and
+`reference-info-base64` under its `UVM_SECURITY_CONTEXT_DIR`. Send those files
+and a hex-encoded SNP attestation report to the relying party.
+
 ```csharp
+using System.Text.Json;
 using TeeAttestationVerification;
 
-byte[] reportBytes = File.ReadAllBytes("attestation-report.bin");
-string arkPem = File.ReadAllText("ark.pem");
-string askPem = File.ReadAllText("ask.pem");
-string vcekPem = File.ReadAllText("vcek.pem");
-byte[] uvmEndorsement = File.ReadAllBytes("uvm-endorsement.cose");
-string trustedDidX509 = File.ReadAllText("trusted-did-x509.txt").Trim();
+const string TrustedDidX509 =
+    "did:x509:0:sha256:I__iuL25oXEVFdTP_aBLx_eT1RPHbCQ_ECBQfYZpt9s" +
+    "::eku:1.3.6.1.4.1.311.76.59.1.2";
+const string TrustedUvmFeed = "ContainerPlat-AMD-UVM";
+
+// Evidence supplied by the C-ACI workload is untrusted until verified.
+byte[] reportBytes = ReadHexFile("attestation-report.hex");
+AmdEndorsements amd = ReadAmdEndorsements("host-amd-cert-base64");
+byte[] uvmEndorsement = ReadBase64File("reference-info-base64");
+
+// Relying-party policy must be configured independently of that evidence.
 ReadOnlyMemory<byte>[] trustedPolicyDigests =
 [
-    File.ReadAllBytes("trusted-caci-policy.sha256"),
+    ReadHexFile("trusted-policy-digest.hex"),
 ];
-(uint Cpuid, ReadOnlyMemory<byte> Tcb)[] minimumTcb =
-[
-    (0x00a00f11u, File.ReadAllBytes("minimum-tcb.bin")),
-];
-string uvmFeed = File.ReadAllText("uvm-feed.txt").Trim();
-ulong minimumSvn = ulong.Parse(File.ReadAllText("minimum-svn.txt"));
+ulong minimumUvmSvn = ulong.Parse(File.ReadAllText("minimum-uvm-svn").Trim());
 
-try
+using SnpAttestationReport report = AttestationVerifier.VerifySnpAttestation(
+    reportBytes,
+    amd.ArkPem,
+    amd.AskPem,
+    amd.VcekPem);
+using CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
+    uvmEndorsement,
+    TrustedDidX509);
+
+byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
+    report,
+    [],
+    trustedPolicyDigests,
+    uvm,
+    TrustedUvmFeed,
+    minimumUvmSvn);
+
+Console.WriteLine(Convert.ToHexString(reportData));
+
+static AmdEndorsements ReadAmdEndorsements(string path)
 {
-    SnpAttestationReport report = AttestationVerifier.VerifySnpAttestation(
-        reportBytes,
-        arkPem,
-        askPem,
-        vcekPem);
-    CborValue uvm = AttestationVerifier.VerifyUvmEndorsement(
-        uvmEndorsement,
-        trustedDidX509);
+    using JsonDocument document = JsonDocument.Parse(ReadBase64File(path));
+    JsonElement root = document.RootElement;
+    string vcekPem = root.GetProperty("vcekCert").GetString()
+        ?? throw new FormatException("host AMD certificate JSON has no VCEK");
+    string chainPem = root.GetProperty("certificateChain").GetString()
+        ?? throw new FormatException("host AMD certificate JSON has no certificate chain");
 
-    byte[] reportData = AttestationVerifier.VerifyCaciAttestation(
-        report,
-        minimumTcb,
-        trustedPolicyDigests,
-        uvm,
-        uvmFeed,
-        minimumSvn);
+    // C-ACI publishes the certificate chain in ASK, ARK order.
+    IReadOnlyList<string> chain = AttestationVerifier.SplitPemBundle(chainPem);
+    if (chain.Count != 2)
+    {
+        throw new FormatException(
+            $"expected an ASK and ARK certificate, got {chain.Count}");
+    }
 
-    Console.WriteLine(Convert.ToHexString(reportData));
+    return new AmdEndorsements(chain[1], chain[0], vcekPem);
 }
-catch (VerifyException error)
-{
-    Console.Error.WriteLine($"{error.Code}: {error.Message}");
-}
+
+static byte[] ReadBase64File(string path) =>
+    Convert.FromBase64String(RemoveWhitespace(File.ReadAllText(path)));
+
+static byte[] ReadHexFile(string path) =>
+    Convert.FromHexString(RemoveWhitespace(File.ReadAllText(path)));
+
+static string RemoveWhitespace(string value) =>
+    string.Concat(value.Where(character => !char.IsWhiteSpace(character)));
+
+sealed record AmdEndorsements(string ArkPem, string AskPem, string VcekPem);
 ```
 
 `VerifySnpAttestation` authenticates the AMD certificate chain and SNP report,
-`VerifyUvmEndorsement` authenticates the UVM endorsement, and
+`VerifyUvmEndorsement` authenticates `reference-info-base64`, and
 `VerifyCaciAttestation` applies the relying-party policy before returning the
-verified 64-byte report data. Load the trusted DID, policy digests, minimum TCB,
-feed, and minimum SVN from relying-party configuration, not from the attester.
+verified 64-byte report data. The trusted DID, UVM feed, and minimum SVN are
+specified by the
+[Confidential ACI scheme](https://github.com/microsoft/confidential-aci-examples/blob/main/docs/Confidential_ACI_SCHEME.md#reference-info-base64).
+Load trusted policy digests and the minimum SVN from relying-party
+configuration.
 
 Native calls fail with `DllNotFoundException` when the package does not carry a
-native asset for the running platform, or when the OpenSSL 3 runtime libraries
-are missing.
+native asset for the running platform, or when required OpenSSL 3 runtime
+libraries are missing.
 
 ## Ownership and errors
 
@@ -93,15 +141,14 @@ Run from `ffi/csharp`:
 python3 run_tests.py --configuration Release
 ```
 
-The runner packs a uniquely versioned NuGet into a temporary feed, restores the
-public xUnit consumer suite against that exact package, and tests the complete
-NuGet → C# → C ABI → Rust path. It also checks the package layout and OpenSSL
-dependencies.
+The runner packs a uniquely versioned Linux development NuGet into a temporary
+feed, restores the public xUnit consumer suite against that exact package, and
+tests the complete NuGet → C# → C ABI → Rust path.
 
 Source builds require Rust, the OpenSSL development headers, and `pkg-config`.
 The MSBuild project invokes Cargo with `crypto_openssl` for every build.
 
-To create a release package:
+To create a local Linux development package:
 
 ```bash
 dotnet pack \
@@ -109,5 +156,7 @@ dotnet pack \
   --configuration Release
 ```
 
-The native asset is packaged at
+The local native asset is packaged at
 `runtimes/linux-x64/native/libtee_attestation_verification_ffi.so`.
+Release packages are built in CI from native assets produced on all three host
+operating systems.

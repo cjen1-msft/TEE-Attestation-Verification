@@ -1,5 +1,31 @@
 version: 2
 updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    exclude-paths:
+      - "Cargo.lock"
+    cooldown:
+      default-days: 5
+    groups:
+      # X.509 signature parsing exchanges DER, OID, and PKCS#1 types.
+      x509:
+        patterns:
+          - "pkcs1"
+          - "x509-cert"
+      # rand's OS-backed generators and getrandom's WASM support move together.
+      random:
+        patterns:
+          - "getrandom"
+          - "rand"
+      # OpenSSL pointer traits must match the versions used by its bindings.
+      openssl:
+        patterns:
+          - "foreign-types-shared"
+          - "openssl"
+          - "openssl-sys"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

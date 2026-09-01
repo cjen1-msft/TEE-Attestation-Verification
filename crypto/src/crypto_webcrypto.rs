@@ -6,7 +6,7 @@
 //! This backend uses the host runtime's `globalThis.crypto.subtle` API for
 //! asynchronous certificate-chain and SEV-SNP attestation report signature
 //! verification. Certificate parsing, encoding, and extension inspection use
-//! the shared pure-Rust X.509 parser. The runtime must provide WebCrypto with
+//! the shared Rust X.509 parser. The runtime must provide WebCrypto with
 //! RSA-PSS/SHA-384 and ECDSA P-256/P-384/P-521 verification support.
 
 use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
@@ -14,7 +14,7 @@ use std::time::Duration;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
-use super::x509_certificate::{self, Certificate as X509Certificate};
+use super::x509_certificate::Certificate as X509Certificate;
 use super::x509_policy;
 use super::{
     compatible_key_and_signature, AsyncCryptoBackend, AsyncKeyBackend, CertificateBackend,
@@ -242,7 +242,7 @@ impl AsyncCryptoBackend for Crypto {
             .map(|cert| &cert.inner)
             .collect::<Vec<_>>();
 
-        x509_certificate::verify_certificate_path_async(
+        x509_policy::verify_certificate_path_async(
             |issuer, subject| Box::pin(verify_x509_certificate_signature(issuer, subject)),
             &trusted_cert.inner,
             &untrusted_x509,
@@ -250,9 +250,10 @@ impl AsyncCryptoBackend for Crypto {
         )
         .await?;
 
+        let singleton_path = untrusted_chain.is_empty() && trusted_cert == leaf;
         let policy_path = std::iter::once(trusted_cert)
             .chain(untrusted_chain.iter().copied())
-            .chain(std::iter::once(leaf));
+            .chain((!singleton_path).then_some(leaf));
         x509_policy::rfc5280_policy::<Crypto, _>(policy_path, unix_time.unwrap_or(unix_time_now()?))
     }
 }

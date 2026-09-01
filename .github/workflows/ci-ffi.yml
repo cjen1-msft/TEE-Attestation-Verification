@@ -15,16 +15,8 @@ permissions:
 
 jobs:
   native:
-    name: Native ${{ matrix.backend.name }} backend
+    name: Native OpenSSL backend
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        backend:
-          - name: OpenSSL
-            features: crypto_openssl
-          - name: pure-Rust
-            features: crypto_pure_rust
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,11 +25,11 @@ jobs:
         run: |
           rustup update stable && rustup default stable
 
-      - name: Build with ${{ matrix.backend.name }} backend
-        run: cargo build --manifest-path ffi/Cargo.toml --no-default-features --features "${{ matrix.backend.features }}"
+      - name: Build with OpenSSL backend
+        run: cargo build --manifest-path ffi/Cargo.toml --no-default-features --features crypto_openssl
 
-      - name: Test with ${{ matrix.backend.name }} backend
-        run: cargo test --manifest-path ffi/Cargo.toml --no-default-features --features "${{ matrix.backend.features }}" -- --nocapture
+      - name: Test with OpenSSL backend
+        run: cargo test --manifest-path ffi/Cargo.toml --no-default-features --features crypto_openssl -- --nocapture
 
   ffi-wasm-api:
     name: FFI WASM API consumer tests
@@ -68,16 +60,11 @@ jobs:
         run: node --test ffi/tests/wasm-consumer/*.test.cjs
 
   ffi-c-api:
-    name: FFI C API consumer tests (${{ matrix.backend.name }}, ${{ matrix.link }})
+    name: FFI C API consumer tests (OpenSSL, ${{ matrix.link }})
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        backend:
-          - name: OpenSSL
-            features: crypto_openssl
-          - name: pure-Rust
-            features: crypto_pure_rust
         link:
           - shared
           - static
@@ -92,7 +79,7 @@ jobs:
       - name: Configure C consumer tests
         run: >
           cmake -S ffi/tests/c-consumer -B target/c-consumer-tests
-          -DTAV_BACKEND_FEATURES=${{ matrix.backend.features }}
+          -DTAV_BACKEND_FEATURES=crypto_openssl
           -DTAV_LINK_STATIC=${{ matrix.link == 'static' && 'ON' || 'OFF' }}
 
       - name: Build C consumer tests
@@ -102,24 +89,5 @@ jobs:
         run: ctest --test-dir target/c-consumer-tests --output-on-failure
 
   ffi-csharp-api:
-    name: FFI C# API consumer tests (Linux x64)
-    runs-on: ubuntu-22.04
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install rust
-        run: |
-          rustup update stable && rustup default stable
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: "8.0.423"
-
-      - name: Install OpenSSL build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
-
-      - name: Run C# native API consumer tests
-        shell: bash
-        run: python3 ffi/csharp/run_tests.py --configuration Release
+    name: FFI C# API consumer tests
+    uses: ./.github/workflows/csharp-package.yml

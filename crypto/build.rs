@@ -16,16 +16,17 @@ fn main() {
     let has_webcrypto = std::env::var_os("CARGO_FEATURE_CRYPTO_WEBCRYPTO").is_some();
     let has_windows = std::env::var_os("CARGO_FEATURE_CRYPTO_WINDOWS").is_some();
 
-    // Allow multiple backends and choose the target-preferred implementation.
     let crypto_backend = if !is_wasm {
-        if is_windows && has_windows {
-            "crypto_windows"
+        if is_windows {
+            if has_windows {
+                "crypto_windows"
+            } else {
+                panic!("On Windows targets, `crypto_windows` must be enabled.");
+            }
         } else if has_openssl {
             "crypto_openssl"
         } else {
-            panic!(
-              "On native targets, `crypto_openssl` or the Windows-only `crypto_windows` must be enabled."
-            );
+            panic!("On native targets, `crypto_openssl` must be enabled.");
         }
     } else {
         if has_webcrypto {

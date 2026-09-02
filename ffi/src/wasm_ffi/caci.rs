@@ -3,9 +3,8 @@
 
 use crate::wasm_ffi::cose::CborValue as WasmCborValue;
 use js_sys::{Array, Uint8Array};
-use serde::de::{Error as _, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
-use std::collections::BTreeSet;
+use serde::de::{MapAccess, Visitor};
+use serde::Deserializer;
 use std::fmt;
 use wasm_bindgen::{prelude::*, JsCast};
 
@@ -117,52 +116,45 @@ fn byte_array_values(values: Array, name: &str) -> Result<Vec<Vec<u8>>, String> 
 }
 
 fn parse_minimum_tcb_json(json: &str) -> Result<Vec<(Cpuid, TcbVersionRaw)>, String> {
+    // To detect and preserve duplicate entries such that the caci validator will not break, we use
+    // the following Visitor struct to construct it during parsing
+    struct MinimumTcbVisitor;
+
+    impl<'de> Visitor<'de> for MinimumTcbVisitor {
+        type Value = Vec<(String, String)>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an object mapping CPUID hex strings to TCB hex strings")
+        }
+
+        fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+            while let Some(entry) = map.next_entry()? {
+                entries.push(entry);
+            }
+            Ok(entries)
+        }
+    }
+
     if json.trim().is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str::<MinimumTcbEntries>(json)
-        .map(|entries| entries.0)
-        .map_err(|error| format!("failed to parse minimum TCB JSON: {error}"))
-}
 
-struct MinimumTcbEntries(Vec<(Cpuid, TcbVersionRaw)>);
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+    let entries = (&mut deserializer)
+        .deserialize_map(MinimumTcbVisitor)
+        .map_err(|error| format!("failed to parse minimum TCB JSON: {error}"))?;
+    deserializer
+        .end()
+        .map_err(|error| format!("failed to parse minimum TCB JSON: {error}"))?;
 
-impl<'de> Deserialize<'de> for MinimumTcbEntries {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_map(MinimumTcbVisitor)
-    }
-}
-
-struct MinimumTcbVisitor;
-
-impl<'de> Visitor<'de> for MinimumTcbVisitor {
-    type Value = MinimumTcbEntries;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("an object mapping CPUID hex strings to TCB hex strings")
-    }
-
-    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-    where
-        M: MapAccess<'de>,
-    {
-        let mut seen = BTreeSet::new();
-        let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
-        while let Some((cpuid_hex, tcb_hex)) = map.next_entry::<String, String>()? {
-            let cpuid = parse_cpuid_hex(&cpuid_hex).map_err(M::Error::custom)?;
-            if !seen.insert(cpuid.0) {
-                return Err(M::Error::custom(format!(
-                    "duplicate minimum TCB CPUID {cpuid_hex:?}"
-                )));
-            }
-            let tcb = parse_tcb_hex(&tcb_hex).map_err(M::Error::custom)?;
-            entries.push((cpuid, tcb));
-        }
-        Ok(MinimumTcbEntries(entries))
-    }
+    entries
+        .into_iter()
+        .map(|(cpuid, tcb)| Ok((parse_cpuid_hex(&cpuid)?, parse_tcb_hex(&tcb)?)))
+        .collect()
 }
 
 fn parse_cpuid_hex(hex: &str) -> Result<Cpuid, String> {

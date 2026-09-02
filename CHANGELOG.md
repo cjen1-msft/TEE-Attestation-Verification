@@ -12,6 +12,10 @@
 
 - By default all crypto backends are enabled. This selects the platform's crypto backend automatically, however OpenSSL is now disabled on Windows. (#136)
 
+### Fixed
+
+- Reject duplicate CPUID entries in minimum-TCB policies, including case aliases supplied through WASM JSON. (#83)
+
 ### Removed
 
 - Removed the `crypto_pure_rust` backend and feature from all crates. (#131)
@@ -54,7 +58,6 @@
 
 - C FFI `TavCborValue` accessors now return owned rather than borrowed values. (#81)
 - WASM `CborValue` accessors no longer clone CBOR subtrees during navigation. (#81)
-- Reject duplicate and case-aliased CPUID entries in WASM minimum-TCB JSON. (#83)
 
 ## [1.0.3]
 

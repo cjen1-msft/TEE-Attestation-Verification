@@ -116,6 +116,22 @@ test('verify_caci_attestation returns report data and rejects an empty policy se
     /duplicate minimum TCB CPUID/,
   );
 
+  const escapedAliasedMinimumTcb = [
+    '{"\\u0030\\u0030a00f11":"04000000000018db",',
+    '"00a00f11":"04000000000018db"}',
+  ].join('');
+  await assertRejectsStringError(
+    pkg.verify_caci_attestation(
+      attestation,
+      escapedAliasedMinimumTcb,
+      policies,
+      uvm,
+      manifest.uvm_feed,
+      BigInt(manifest.minimum_svn),
+    ),
+    /duplicate minimum TCB CPUID/,
+  );
+
   // Failure mode: at least one trusted execution policy digest is required.
   await assertRejectsStringError(
     pkg.verify_caci_attestation(

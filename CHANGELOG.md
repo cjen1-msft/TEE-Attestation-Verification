@@ -8,6 +8,10 @@
 
 - Handle-based CBOR API for C++ in the `tee-attestation-verification-ffi` crate, with independently owned navigation handles, for building, parsing, serializing and inspecting CBOR. The supported interface is the `<tav/cbor.hpp>` wrapper; the C ABI beneath it is an implementation detail of that header. (#133)
 
+### Changed
+
+- By default all crypto backends are enabled. This selects the platform's crypto backend automatically, however OpenSSL is now disabled on Windows. (#136)
+
 ### Removed
 
 - Removed the `crypto_pure_rust` backend and feature from all crates. (#131)

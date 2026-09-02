@@ -13,6 +13,7 @@ license = "MIT"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
+default = ["crypto_openssl", "crypto_webcrypto", "crypto_windows"]
 crypto_openssl = [
     "crypto/crypto_openssl",
     "attestation/crypto_openssl",

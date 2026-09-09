@@ -11,6 +11,15 @@ The CBOR/COSE coverage exercises independently owned direct and nested child
 views, validated COSE_Sign1 views, parent-first freeing, and failure
 out-parameters.
 
+The project builds two executables from the same imported Rust library:
+
+- `tav-c-consumer-tests` (C++17) drives the C ABI headers.
+- `tav-cpp-consumer-tests` (C++20) drives the `<tav/snp.hpp>` wrapper, covering
+  every accessor against the Milan golden report, handle ownership and moves,
+  borrowed-span lifetime, and error codes and messages.
+
+`ctest` runs both.
+
 The suite uses [doctest](https://github.com/doctest/doctest), vendored as a
 single header under `vendor/doctest.h` (MIT licensed).
 

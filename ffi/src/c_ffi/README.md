@@ -97,3 +97,38 @@ tav_snp_attestation_report_free(attestation);
 `tav_byte_buffer_data`/`tav_byte_buffer_len` and release it with
 `tav_byte_buffer_free`. See `ffi/tests/c-consumer/caci.cpp` for the failure
 modes and full error handling.
+
+## C++ SNP wrapper
+
+`<tav/snp.hpp>` wraps the SNP C ABI for C++20 consumers. It is header-only, so
+it needs the same include path and the same library as the C ABI.
+
+```cpp
+#include <tav/snp.hpp>
+
+using tav::snp::AttestationReport;
+
+AttestationReport report =
+    AttestationReport::verify(report_bytes, ark_pem, ask_pem, vcek_pem);
+std::span<const uint8_t> measurement = report.measurement();
+```
+
+Both factories take `std::span<const uint8_t>` and throw `tav::snp::Error` on
+failure. The exception carries the `TavErrorCode` in `code()` and the TAV
+message in `what()`. `AttestationReport::from_unverified` decodes a report
+without checking signatures, so do not make trust decisions from its fields.
+
+Lifetime rules:
+
+- A report owns one `TavSnpAttestationReport` and frees it on destruction.
+  Reports move but do not copy. A moved-from report is `empty()`, and so is a
+  default-constructed one.
+- Byte accessors return spans borrowed from the report rather than from the
+  buffer the factory was called with, so that buffer can be freed once the
+  report exists. A span stays valid while the report holds its handle and
+  survives moves of that report. Destroying the report, or move-assigning over
+  it, frees the handle and invalidates the span.
+- Accessors on an empty report throw `tav::snp::Error` with `TAV_ERROR_IS_NULL`
+  instead of calling the C ABI, which does not accept a null handle.
+- `native_handle()` borrows the handle for C interop. The report keeps
+  ownership, so do not free the returned handle.

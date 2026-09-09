@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Header-only C++ wrapper over the SNP attestation C ABI, `<tav/snp.hpp>`, providing an owning `tav::snp::AttestationReport` with span accessors and `tav::snp::Error`. The C ABI in `<tav/snp.h>` is unchanged.
+
 ## [1.0.8]
 
 [1.0.8]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.8

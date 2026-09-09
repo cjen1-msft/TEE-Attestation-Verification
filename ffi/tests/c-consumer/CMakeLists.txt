@@ -67,11 +67,28 @@ target_compile_definitions(tav-c-consumer-tests PRIVATE TAV_REPO_ROOT="${TAV_REP
 target_link_libraries(tav-c-consumer-tests PRIVATE tav)
 target_compile_options(tav-c-consumer-tests PRIVATE -Wall -Wextra)
 
+# The C++ wrapper headers need C++20, so they get their own executable rather
+# than raising the standard the C ABI tests are checked against.
+add_executable(tav-cpp-consumer-tests
+    main.cpp
+    snp_hpp.cpp)
+set_target_properties(tav-cpp-consumer-tests PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF)
+target_include_directories(tav-cpp-consumer-tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor"
+    "${TAV_REPO_ROOT}/ffi/include")
+target_compile_definitions(tav-cpp-consumer-tests PRIVATE TAV_REPO_ROOT="${TAV_REPO_ROOT}")
+target_link_libraries(tav-cpp-consumer-tests PRIVATE tav)
+target_compile_options(tav-cpp-consumer-tests PRIVATE -Wall -Wextra)
+
 if(NOT TAV_LINK_STATIC)
-    set_target_properties(tav-c-consumer-tests PROPERTIES
+    set_target_properties(tav-c-consumer-tests tav-cpp-consumer-tests PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN")
 endif()
 
 enable_testing()
 add_test(NAME c-consumer COMMAND tav-c-consumer-tests)
+add_test(NAME cpp-consumer COMMAND tav-cpp-consumer-tests)

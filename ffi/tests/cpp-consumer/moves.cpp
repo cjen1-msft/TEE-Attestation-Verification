@@ -6,7 +6,8 @@
 #include <tav/cbor.hpp>
 #include <tav/cose.h>
 #include <tav/snp.hpp>
-#include <tav/utils.hpp>
+#include <tav/byte_buffer.hpp>
+#include <tav/errors.hpp>
 
 #include <memory>
 #include <type_traits>

@@ -18,7 +18,7 @@ option(TAV_LINK_STATIC "Link the tests against the Rust static library" OFF)
 get_filename_component(TAV_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 set(TAV_CARGO_TARGET_DIR "${TAV_REPO_ROOT}/target")
 
-foreach(header IN ITEMS byte_buffer.h errors.h utils.h byte_buffer.hpp errors.hpp utils.hpp)
+foreach(header IN ITEMS byte_buffer.h errors.h utils.h byte_buffer.hpp errors.hpp)
     if(header MATCHES "\\.hpp$")
         set(extension cpp)
     else()

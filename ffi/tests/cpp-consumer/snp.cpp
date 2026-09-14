@@ -10,7 +10,7 @@
 #include "../c-consumer/support.h"
 
 #include <tav/snp.hpp>
-#include <tav/utils.hpp>
+#include <tav/errors.hpp>
 
 #include <type_traits>
 

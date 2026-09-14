@@ -52,7 +52,14 @@ public:
         return {tav_byte_buffer_data(handle_), tav_byte_buffer_len(handle_)};
     }
 
-    /// Adopts a handle a C ABI function wrote through an out-parameter.
+    /// Takes ownership of `handle`, a buffer a C ABI function produced. The
+    /// bytes are not copied; the returned ByteBuffer frees the handle when it
+    /// is destroyed.
+    ///
+    /// `handle` must be null or a live buffer from this library. Adopting null
+    /// yields an empty ByteBuffer. The caller must not adopt the same non-null
+    /// handle twice, or free it separately: nothing here tracks a handle that
+    /// was already adopted, so a second owner double-frees it.
     static ByteBuffer adopt(TavByteBuffer* handle)
     {
         return ByteBuffer(handle);

@@ -6,8 +6,7 @@ more detail (`snp.h`, `cose.h`, `caci.h`, `utils.h`).
 
 C++ consumers can use the RAII wrappers instead of the raw C ABI: `errors.hpp`
 (`tav::Exception`), `byte_buffer.hpp` (`tav::ByteBuffer`), and `snp.hpp`
-(`tav::snp::Report`). `utils.h` and `utils.hpp` include the error and byte-buffer
-headers for C and C++ respectively, so existing includes still work. See
+(`tav::snp::Report`). `utils.h` includes both C utility headers. See
 `ffi/tests/cpp-consumer/` for worked examples and
 `ffi/tests/cpp-consumer/CMakeLists.txt` for a CMake setup.
 The C++ consumer executable runs with AddressSanitizer enabled for both shared

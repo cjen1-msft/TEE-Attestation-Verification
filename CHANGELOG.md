@@ -4,7 +4,7 @@
 
 ### Added
 
-- C++ RAII wrapper for SNP attestation verification: `<tav/snp.hpp>` (`tav::snp::Report`) and shared error/byte-buffer wrapper `<tav/utils.hpp>` (`tav::Exception`, `tav::ByteBuffer`). (#160)
+- C++ RAII wrapper for SNP attestation verification: `<tav/snp.hpp>` (`tav::snp::Report`), `<tav/errors.hpp>` (`tav::Exception`), and `<tav/byte_buffer.hpp>` (`tav::ByteBuffer`). (#160)
 
 ### Changed
 

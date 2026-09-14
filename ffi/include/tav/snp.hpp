@@ -16,12 +16,12 @@
 //   std::span<const uint8_t> borrowed from the owning Report; the span must
 //   not outlive the Report it was obtained from.
 //
-// Failures throw tav::Exception (see <tav/utils.hpp>).
+// Failures throw tav::Exception (see <tav/errors.hpp>).
 
 #pragma once
 
 #include <tav/snp.h>
-#include <tav/utils.hpp>
+#include <tav/errors.hpp>
 
 #include <cstddef>
 #include <cstdint>

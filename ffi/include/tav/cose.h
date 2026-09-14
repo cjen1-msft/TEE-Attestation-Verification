@@ -11,12 +11,32 @@
 
 #define TAV_COSE_API
 
+#if defined(_MSC_VER)
+#define TAV_COSE_CBOR_DEPRECATED __declspec(deprecated("Use tav/cbor.h"))
+#elif defined(__GNUC__) || defined(__clang__)
+#define TAV_COSE_CBOR_DEPRECATED __attribute__((deprecated("Use tav/cbor.h")))
+#elif defined(__cplusplus) && __cplusplus >= 201402L
+#define TAV_COSE_CBOR_DEPRECATED [[deprecated("Use tav/cbor.h")]]
+#else
+#define TAV_COSE_CBOR_DEPRECATED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
  * C ABI for CBOR parsing/navigation and COSE_Sign1 verification.
+ * The tav_cbor_value_* functions are deprecated; use tav/cbor.h instead.
+ * COSE validation, verification, types, and constants remain supported.
+ * Legacy parsing owns its input payloads and parsing/serialization use depth 64.
+ * The generic API borrows input and lets callers select a depth up to 256.
+ * Both handle types use the same representation. An explicit pointer cast
+ * between TavCborValue* and TavCborHandle* is supported without copying or
+ * transferring ownership. Never cast an output slot (a pointer-to-pointer).
+ * Release each handle exactly once, preferably with tav_cbor_free.
+ * For generic borrowed values, keep input alive and unchanged while any
+ * derived handle remains, including handles returned by COSE validation.
  *
  * Ownership and lifetime:
  * - Every TavCborValue returned through an out-parameter is independently owned
@@ -83,97 +103,97 @@ typedef enum TavCwtClaim {
 
 typedef struct TavCborValue TavCborValue;
 
-TAV_COSE_API TavError *tav_cbor_value_from_bytes(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_from_bytes(
     const uint8_t *bytes,
     size_t len,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_to_bytes(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_to_bytes(
     const TavCborValue *value,
     TavByteBuffer **out_bytes);
 
 /* value must be a valid, non-NULL TavCborValue handle. */
-TAV_COSE_API TavCborKind tav_cbor_value_kind(const TavCborValue *value);
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavCborKind tav_cbor_value_kind(const TavCborValue *value);
 
-TAV_COSE_API TavError *tav_cbor_value_int(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_int(
     const TavCborValue *value,
     int64_t *out);
 
-TAV_COSE_API TavError *tav_cbor_value_simple(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_simple(
     const TavCborValue *value,
     uint8_t *out);
 
-TAV_COSE_API TavError *tav_cbor_value_bytes(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_bytes(
     const TavCborValue *value,
     const uint8_t **data,
     size_t *len);
 
-TAV_COSE_API TavError *tav_cbor_value_text(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_text(
     const TavCborValue *value,
     const char **text,
     size_t *len);
 
-TAV_COSE_API TavError *tav_cbor_value_tag(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_tag(
     const TavCborValue *value,
     uint64_t *out);
 
-TAV_COSE_API TavError *tav_cbor_value_tagged_payload(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_tagged_payload(
     const TavCborValue *value,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_len(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_len(
     const TavCborValue *value,
     size_t *out);
 
-TAV_COSE_API TavError *tav_cbor_value_array_at(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_array_at(
     const TavCborValue *value,
     size_t index,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_map_at_int(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_at_int(
     const TavCborValue *value,
     int64_t key,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_map_at_text(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_at_text(
     const TavCborValue *value,
     const char *key,
     size_t key_len,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_map_at(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_at(
     const TavCborValue *value,
     const TavCborValue *key,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_map_has_int_key(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_has_int_key(
     const TavCborValue *value,
     int64_t key,
     bool *out);
 
-TAV_COSE_API TavError *tav_cbor_value_map_has_text_key(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_has_text_key(
     const TavCborValue *value,
     const char *key,
     size_t key_len,
     bool *out);
 
-TAV_COSE_API TavError *tav_cbor_value_map_has_key(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_has_key(
     const TavCborValue *value,
     const TavCborValue *key,
     bool *out);
 
-TAV_COSE_API TavError *tav_cbor_value_map_entry_at(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_entry_at(
     const TavCborValue *value,
     size_t index,
     TavCborValue **out_key,
     TavCborValue **out_value);
 
-TAV_COSE_API TavError *tav_cbor_value_map_key_at(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_key_at(
     const TavCborValue *value,
     size_t index,
     TavCborValue **out_key);
 
-TAV_COSE_API TavError *tav_cbor_value_map_value_at(
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API TavError *tav_cbor_value_map_value_at(
     const TavCborValue *value,
     size_t index,
     TavCborValue **out_value);
@@ -182,7 +202,7 @@ TAV_COSE_API TavError *tav_validate_cose_sign1(
     const TavCborValue *value,
     TavCborValue **out_sign1);
 
-TAV_COSE_API void tav_cbor_value_free(TavCborValue *value);
+TAV_COSE_CBOR_DEPRECATED TAV_COSE_API void tav_cbor_value_free(TavCborValue *value);
 
 
 TAV_COSE_API TavError *tav_verify_cose_sign1_embedded(

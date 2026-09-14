@@ -28,6 +28,9 @@ extern "C" {
  *   A null output slot is rejected before consuming inputs.
  * - Navigation returns a new owning handle projected into the same immutable
  *   document. It remains valid after the source handle is freed.
+ * - TavCborValue pointers from cose.h may be explicitly cast to this handle
+ *   type and vice versa without copying or acquiring ownership. Do not cast
+ *   pointer-to-pointer output slots. Free each owned handle exactly once.
  *
  * Payloads:
  * - Scalars are copied. tav_cbor_make_bytes and tav_cbor_make_string borrow:

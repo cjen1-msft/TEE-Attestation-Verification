@@ -7,6 +7,15 @@
 
 #include <cstring>
 
+// This translation unit deliberately exercises the deprecated compatibility ABI.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4996)
+#elif defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 namespace {
 
 // COSE P-256 verification-only vector, mirrored from the in-crate Rust tests.
@@ -438,4 +447,181 @@ TEST_CASE("cose: detached verification accepts a nil payload") {
         kSpki.data(), kSpki.size(), TAV_COSE_ALG_ES256);
     CHECK(error == nullptr);
     tav_error_free(error);
+}
+
+TEST_CASE("cbor compatibility: owned input and zero-copy cross-API navigation") {
+    std::vector<uint8_t> input = {0x81, 0x42, 0xaa, 0xbb};
+    CborHandle legacy;
+    REQUIRE(tav_cbor_value_from_bytes(input.data(), input.size(), legacy.out()) == nullptr);
+    TavCborHandle *borrowed = nullptr;
+    REQUIRE(tav_cbor_nondet_parse(input.data(), input.size(), 64, &borrowed) == nullptr);
+    TavCborHandle *generic_child = nullptr;
+    REQUIRE(tav_cbor_array_at(borrowed, 0, &generic_child) == nullptr);
+    const uint8_t *data = nullptr;
+    size_t len = 0;
+    REQUIRE(tav_cbor_as_bytes(generic_child, &data, &len) == nullptr);
+    CHECK(data == input.data() + 2);
+    CHECK(len == 2);
+    tav_cbor_free(generic_child);
+    tav_cbor_free(borrowed);
+    input.assign(input.size(), 0);
+
+    CborHandle legacy_child;
+    REQUIRE(tav_cbor_value_array_at(legacy.value, 0, legacy_child.out()) == nullptr);
+    REQUIRE(tav_cbor_array_at(reinterpret_cast<TavCborHandle *>(legacy.value), 0,
+                              &generic_child) == nullptr);
+    const uint8_t *legacy_data = nullptr;
+    REQUIRE(tav_cbor_value_bytes(legacy_child.value, &legacy_data, &len) == nullptr);
+    REQUIRE(tav_cbor_as_bytes(generic_child, &data, &len) == nullptr);
+    CHECK(data == legacy_data);
+    tav_cbor_value_free(legacy.value);
+    legacy.value = nullptr;
+    tav_cbor_value_free(legacy_child.value);
+    legacy_child.value = nullptr;
+    CHECK(data[0] == 0xaa);
+    CHECK(data[1] == 0xbb);
+    tav_cbor_free(generic_child);
+}
+
+TEST_CASE("cbor compatibility: legacy parse and serialization keep depth 64") {
+    for (size_t depth : {64u, 65u}) {
+        std::vector<uint8_t> input(depth, 0x81);
+        input.push_back(0x00);
+        CborHandle legacy;
+        TavError *error = tav_cbor_value_from_bytes(input.data(), input.size(), legacy.out());
+        if (depth == 64) {
+            REQUIRE(error == nullptr);
+        } else {
+            CHECK(tav_error_code(error) == TAV_ERROR_COSE_CBOR);
+            CHECK(std::string(tav_error_message(error)) == "Maximum CBOR nesting depth exceeded");
+            CHECK(legacy.value == nullptr);
+        }
+        tav_error_free(error);
+
+        TavCborHandle *generic = nullptr;
+        REQUIRE(tav_cbor_nondet_parse(input.data(), input.size(), 65, &generic) == nullptr);
+        TavByteBuffer *encoded = reinterpret_cast<TavByteBuffer *>(0x1);
+        error = tav_cbor_value_to_bytes(reinterpret_cast<TavCborValue *>(generic), &encoded);
+        if (depth == 64) {
+            REQUIRE(error == nullptr);
+            REQUIRE(tav_byte_buffer_len(encoded) == input.size());
+            CHECK(std::memcmp(tav_byte_buffer_data(encoded), input.data(), input.size()) == 0);
+        } else {
+            CHECK(tav_error_code(error) == TAV_ERROR_COSE_CBOR);
+            CHECK(std::string(tav_error_message(error)) == "Maximum CBOR nesting depth exceeded");
+            CHECK(encoded == nullptr);
+        }
+        tav_error_free(error);
+        tav_byte_buffer_free(encoded);
+        REQUIRE(tav_cbor_det_serialize(generic, 65, &encoded) == nullptr);
+        CHECK(tav_byte_buffer_len(encoded) == input.size());
+        tav_byte_buffer_free(encoded);
+        tav_cbor_free(generic);
+    }
+}
+
+TEST_CASE("cbor compatibility: legacy diagnostics and generic outputs stay distinct") {
+    const uint8_t input[] = {0x01};
+    CborHandle value;
+    REQUIRE(tav_cbor_value_from_bytes(input, sizeof(input), value.out()) == nullptr);
+    auto check_error = [](TavError *error, TavErrorCode code, const char *message) {
+        REQUIRE(error != nullptr);
+        CHECK(tav_error_code(error) == code);
+        CHECK(std::string(tav_error_message(error)) == message);
+        tav_error_free(error);
+    };
+    uint8_t simple = 99;
+    check_error(tav_cbor_value_simple(value.value, &simple),
+                TAV_ERROR_COSE_UNEXPECTED_TYPE, "value must be simple");
+    CHECK(simple == 0);
+    uint64_t tag = 99;
+    check_error(tav_cbor_value_tag(value.value, &tag),
+                TAV_ERROR_COSE_UNEXPECTED_TYPE, "value must be tagged");
+    CHECK(tag == 0);
+    size_t len = 99;
+    check_error(tav_cbor_value_len(value.value, &len),
+                TAV_ERROR_COSE_CBOR, "len() not applicable to \"Int\"");
+    CHECK(len == 0);
+    TavCborValue *child = value.value;
+    check_error(tav_cbor_value_array_at(value.value, 0, &child),
+                TAV_ERROR_COSE_CBOR, "Expected Array, got \"Int\"");
+    CHECK(child == nullptr);
+    bool present = true;
+    check_error(tav_cbor_value_map_has_int_key(value.value, 1, &present),
+                TAV_ERROR_COSE_CBOR, "Expected Map, got \"Int\"");
+    CHECK_FALSE(present);
+    int64_t scalar = 99;
+    check_error(tav_cbor_value_int(nullptr, &scalar),
+                TAV_ERROR_INVALID_ARGUMENT, "value is null");
+    CHECK(scalar == 0);
+    check_error(tav_cbor_value_int(value.value, nullptr),
+                TAV_ERROR_INVALID_ARGUMENT, "out pointer is null");
+    const char *text = reinterpret_cast<const char *>(0x1);
+    len = 99;
+    check_error(tav_cbor_value_text(value.value, &text, &len),
+                TAV_ERROR_COSE_UNEXPECTED_TYPE, "value must be text");
+    CHECK(text == nullptr);
+    CHECK(len == 0);
+    simple = 99;
+    check_error(tav_cbor_as_simple(reinterpret_cast<TavCborHandle *>(value.value), &simple),
+                TAV_ERROR_CBOR_TYPE_MISMATCH, "CBOR type mismatch or null argument");
+    CHECK(simple == 99);
+
+    child = value.value;
+    check_error(tav_cbor_value_from_bytes(nullptr, 0, &child),
+                TAV_ERROR_INVALID_ARGUMENT, "CBOR bytes is empty");
+    CHECK(child == nullptr);
+    child = value.value;
+    check_error(tav_cbor_value_from_bytes(nullptr, 1, &child),
+                TAV_ERROR_INVALID_ARGUMENT, "CBOR bytes pointer is null");
+    CHECK(child == nullptr);
+    const uint8_t trailing[] = {0x00, 0x00};
+    child = value.value;
+    check_error(tav_cbor_value_from_bytes(trailing, sizeof(trailing), &child),
+                TAV_ERROR_COSE_CBOR, "Trailing bytes: 1 unconsumed byte(s)");
+    CHECK(child == nullptr);
+
+    const uint8_t empty_map[] = {0xa0};
+    CborHandle map;
+    REQUIRE(tav_cbor_value_from_bytes(empty_map, sizeof(empty_map), map.out()) == nullptr);
+    child = value.value;
+    check_error(tav_cbor_value_map_at_int(map.value, 1, &child),
+                TAV_ERROR_COSE_CBOR, "Key Int(1) not found in map");
+    CHECK(child == nullptr);
+    child = value.value;
+    check_error(tav_cbor_value_map_at_text(map.value, "x", 1, &child),
+                TAV_ERROR_COSE_CBOR, "Key Tstr(\"x\") not found in map");
+    CHECK(child == nullptr);
+    child = value.value;
+    check_error(tav_cbor_value_map_at(map.value, value.value, &child),
+                TAV_ERROR_COSE_CBOR, "Key Int(1) not found in map");
+    CHECK(child == nullptr);
+    TavCborValue *key = value.value;
+    child = value.value;
+    check_error(tav_cbor_value_map_entry_at(map.value, 0, &key, &child),
+                TAV_ERROR_COSE_CBOR, "Index 0 out of bounds");
+    CHECK(key == nullptr);
+    CHECK(child == nullptr);
+    child = value.value;
+    check_error(tav_cbor_value_map_entry_at(map.value, 0, &child, &child),
+                TAV_ERROR_INVALID_ARGUMENT, "out_key and out_value must be different");
+    CHECK(child == nullptr);
+}
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#elif defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+TEST_CASE("cose: generic borrowed input supports validation and verification") {
+    const auto input = build_sign1(true);
+    TavCborHandle *root = nullptr;
+    REQUIRE(tav_cbor_nondet_parse(input.data(), input.size(), 64, &root) == nullptr);
+    TavCborValue *sign1 = nullptr;
+    REQUIRE(tav_validate_cose_sign1(reinterpret_cast<TavCborValue *>(root), &sign1) == nullptr);
+    tav_cbor_free(root);
+    REQUIRE(tav_verify_cose_sign1_embedded(sign1, kSpki.data(), kSpki.size(),
+                                          TAV_COSE_ALG_ES256) == nullptr);
+    tav_cbor_free(reinterpret_cast<TavCborHandle *>(sign1));
 }

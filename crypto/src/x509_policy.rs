@@ -89,6 +89,32 @@ where
     Backend::Certificate: 'cert,
     Path: Clone + Iterator<Item = &'cert Backend::Certificate>,
 {
+    path_policy::<Backend, Path>(path, unix_time, true)
+}
+
+/// Validate an exact path whose first certificate is caller-supplied anchor information.
+pub(crate) fn supplied_anchor_policy<'cert, Backend, Path>(
+    path: Path,
+    unix_time: Duration,
+) -> super::Result<()>
+where
+    Backend: CertificateBackend,
+    Backend::Certificate: 'cert,
+    Path: Clone + Iterator<Item = &'cert Backend::Certificate>,
+{
+    path_policy::<Backend, Path>(path, unix_time, false)
+}
+
+fn path_policy<'cert, Backend, Path>(
+    path: Path,
+    unix_time: Duration,
+    require_self_issued_anchor: bool,
+) -> super::Result<()>
+where
+    Backend: CertificateBackend,
+    Backend::Certificate: 'cert,
+    Path: Clone + Iterator<Item = &'cert Backend::Certificate>,
+{
     let path_len = path.clone().count();
     if path_len == 0 {
         return Err("Certificate path must not be empty".into());
@@ -98,7 +124,7 @@ where
     for window in padded_windows::<_, _, 2>(path.clone()) {
         match window {
             [None, Some(cert)] => {
-                if !Backend::is_self_issued(cert)? {
+                if require_self_issued_anchor && !Backend::is_self_issued(cert)? {
                     return Err(format!(
                         "First certificate {} is not self-issued",
                         Backend::subject_name(cert)
@@ -247,6 +273,26 @@ fn assert_no_unhandled_critical_extensions<Backend: CertificateBackend>(
     cert: &Backend::Certificate,
 ) -> super::Result<()> {
     for critical_oid in Backend::critical_extension_oids(cert) {
+        #[cfg(feature = "x509")]
+        if matches!(critical_oid.as_str(), "2.5.29.17" | "2.5.29.37") {
+            let parsed = crate::x509::Certificate::from_backend::<Backend>(cert)?;
+            if critical_oid == "2.5.29.17" {
+                let (_, names) = parsed
+                    .extension::<crate::x509::SubjectAltName>()?
+                    .ok_or("Missing subject alternative names")?;
+                if names.0.is_empty() {
+                    return Err("Empty subject alternative names".into());
+                }
+            } else {
+                let (_, usages) = parsed
+                    .extension::<crate::x509::ExtendedKeyUsage>()?
+                    .ok_or("Missing extended key usage")?;
+                if usages.0.is_empty() {
+                    return Err("Empty extended key usage".into());
+                }
+            }
+            continue;
+        }
         if !oid::HANDLED_CRITICAL_EXTENSIONS.contains(&critical_oid.as_str()) {
             return Err(format!(
                 "Certificate {} contains unhandled critical extension {}",

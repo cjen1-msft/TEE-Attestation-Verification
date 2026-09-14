@@ -12,6 +12,8 @@ use std::time::Duration;
 
 pub mod base64;
 pub mod hex;
+#[cfg(feature = "x509")]
+pub mod x509;
 mod x509_policy;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -151,6 +153,17 @@ pub trait CryptoBackend: CertificateBackend {
         leaf: &<Self as CertificateBackend>::Certificate,
         unix_time: Option<Duration>,
     ) -> Result<()>;
+
+    /// Validate exactly this path, rejecting unused or reordered intermediates.
+    /// Intermediates are ordered from the trust anchor toward the leaf.
+    fn verify_chain_exact(
+        _trusted_cert: &Self::Certificate,
+        _untrusted_chain: &[&Self::Certificate],
+        _leaf: &Self::Certificate,
+        _unix_time: Option<Duration>,
+    ) -> Result<()> {
+        Err("Backend does not implement exact path validation".into())
+    }
 }
 
 /// Asynchronous API for a cryptographic backend
@@ -178,6 +191,16 @@ pub trait AsyncCryptoBackend: CertificateBackend {
         leaf: &<Self as CertificateBackend>::Certificate,
         unix_time: Option<Duration>,
     ) -> impl std::future::Future<Output = Result<()>>;
+
+    /// Asynchronous exact-path validation; intermediates are root-nearest first.
+    fn verify_chain_exact(
+        _trusted_cert: &Self::Certificate,
+        _untrusted_chain: &[&Self::Certificate],
+        _leaf: &Self::Certificate,
+        _unix_time: Option<Duration>,
+    ) -> impl std::future::Future<Output = Result<()>> {
+        async { Err("Backend does not implement exact path validation".into()) }
+    }
 }
 
 /// Any synchronous `CryptoBackend` also implements `AsyncCryptoBackend` by blocking on the synchronous verification.
@@ -208,6 +231,15 @@ where
         unix_time: Option<Duration>,
     ) -> Result<()> {
         <C as CryptoBackend>::verify_chain(trusted_cert, untrusted_chain, leaf, unix_time)
+    }
+
+    async fn verify_chain_exact(
+        trusted_cert: &Self::Certificate,
+        untrusted_chain: &[&Self::Certificate],
+        leaf: &Self::Certificate,
+        unix_time: Option<Duration>,
+    ) -> Result<()> {
+        <C as CryptoBackend>::verify_chain_exact(trusted_cert, untrusted_chain, leaf, unix_time)
     }
 }
 

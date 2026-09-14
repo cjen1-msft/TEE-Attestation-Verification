@@ -382,6 +382,28 @@ mod sync_tests {
     }
 
     #[test]
+    fn exact_path_rejects_unused_candidates_and_accepts_partial_anchor() {
+        let root = cert(MILAN_ARK);
+        let issuer = cert(MILAN_ASK);
+        let leaf = cert(MILAN_VCEK);
+        let unrelated = cert(GENOA_ASK);
+        let time = Some(Duration::from_secs(1_785_542_400));
+        <Crypto as CryptoBackend>::verify_chain_exact(&root, &[&issuer], &leaf, time).unwrap();
+        <Crypto as CryptoBackend>::verify_chain_exact(&issuer, &[], &leaf, time).unwrap();
+        <Crypto as CryptoBackend>::verify_chain_exact(&root, &[&unrelated, &issuer], &leaf, time)
+            .expect_err("Unused candidates are not part of the validated path");
+        <Crypto as CryptoBackend>::verify_chain_exact(&root, &[&issuer, &issuer], &leaf, time)
+            .expect_err("Repeated candidates are not part of the validated path");
+        <Crypto as CryptoBackend>::verify_chain_exact(
+            &root,
+            &[&issuer],
+            &leaf,
+            Some(Duration::ZERO),
+        )
+        .expect_err("Exact paths must retain time validation");
+    }
+
+    #[test]
     fn explicit_verification_time_is_used() {
         <Crypto as CryptoBackend>::verify_chain(
             &cert(MILAN_ARK),

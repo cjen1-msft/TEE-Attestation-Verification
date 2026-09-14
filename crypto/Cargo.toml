@@ -15,6 +15,11 @@ default = ["crypto_openssl", "crypto_webcrypto", "crypto_windows"]
 crypto_openssl = ["dep:foreign-types-shared", "dep:openssl", "dep:openssl-sys"]
 crypto_webcrypto = ["dep:pkcs1", "dep:x509-cert"]
 crypto_windows = ["dep:windows"]
+x509 = ["dep:x509-cert", "dep:pkcs1"]
+
+[dependencies]
+pkcs1 = { version = ">=0.8.0-rc.4, <0.9", optional = true }
+x509-cert = { version = ">=0.3.0, <0.4", optional = true }
 
 [target.'cfg(all(not(target_family = "wasm"), not(windows)))'.dependencies]
 foreign-types-shared = { version = ">=0.1, <0.4", optional = true }
@@ -30,10 +35,8 @@ windows = { version = ">=0.62.2, <0.63", optional = true, features = [
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 js-sys = ">=0.3, <0.4"
-pkcs1 = { version = ">=0.8.0-rc.4, <0.9", optional = true }
 wasm-bindgen = ">=0.2, <0.3"
 wasm-bindgen-futures = ">=0.4, <0.5"
-x509-cert = { version = ">=0.3.0, <0.4", optional = true }
 
 [dev-dependencies]
 getrandom = { version = ">=0.4, <0.5", features = ["wasm_js"] }

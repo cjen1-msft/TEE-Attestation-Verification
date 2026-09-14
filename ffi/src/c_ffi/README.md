@@ -2,7 +2,7 @@
 
 Native C ABI for CBOR, SNP, COSE, and CACI verification. Headers live under
 `ffi/include/tav/`; each header's usage summary documents its own surface in
-more detail (`cbor.h`, `snp.h`, `cose.h`, `caci.h`, `utils.h`).
+more detail (`cbor.h`, `snp.h`, `cose.h`, `caci.h`, `errors.h`, `byte_buffer.h`).
 
 C++ consumers can use the RAII wrappers instead of the raw C ABI: `errors.hpp`
 (`tav::Exception`), `byte_buffer.hpp` (`tav::ByteBuffer`), and `snp.hpp`
@@ -11,6 +11,11 @@ C++ consumers can use the RAII wrappers instead of the raw C ABI: `errors.hpp`
 `ffi/tests/cpp-consumer/CMakeLists.txt` for a CMake setup.
 The C++ consumer executable runs with AddressSanitizer enabled for both shared
 and static linking. The Rust library is not sanitizer-instrumented.
+
+The CBOR wrapper in `cbor.hpp` includes `errors.hpp` and `byte_buffer.hpp` but retains its
+`tav::cbor::DecodeError` and `tav::cbor::EncodeError` exceptions and error codes.
+Serialization returns an owned `std::vector<uint8_t>`. See
+`ffi/tests/c-builder/` for CBOR examples and a CMake setup.
 
 Fallible public functions return `NULL` on success or an owned `TavError*` on
 failure. Inspect failures with `tav_error_code`/`tav_error_message`, then free

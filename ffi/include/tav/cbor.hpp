@@ -28,10 +28,11 @@
 //   extremely deep Value can exhaust the process stack and abort.
 
 #include <tav/cbor.h>
+#include <tav/byte_buffer.hpp>
+#include <tav/errors.hpp>
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -287,37 +288,6 @@ private:
     friend Value nondet_parse(std::span<const uint8_t>, size_t);
     friend Value det_parse(std::span<const uint8_t>, size_t);
 
-    /// Owns a buffer returned by the ABI, so it is released even if a C++
-    /// allocation below throws.
-    class Buffer
-    {
-    public:
-        Buffer() = default;
-        Buffer(const Buffer&) = delete;
-        Buffer& operator=(const Buffer&) = delete;
-        Buffer(Buffer&&) = delete;
-        Buffer& operator=(Buffer&&) = delete;
-
-        ~Buffer()
-        {
-            tav_byte_buffer_free(ptr_);
-        }
-
-        TavByteBuffer** ptr()
-        {
-            return &ptr_;
-        }
-
-        [[nodiscard]] std::vector<uint8_t> to_vector() const
-        {
-            const auto* data = tav_byte_buffer_data(ptr_);
-            return {data, data + tav_byte_buffer_len(ptr_)};
-        }
-
-    private:
-        TavByteBuffer* ptr_{nullptr};
-    };
-
     /// Holds handles being handed to a container constructor.
     ///
     /// The constructor nulls what it consumes and returns what it does not,
@@ -375,11 +345,14 @@ private:
     static void check_error(
       TavError* error, const char* what, Error fallback, bool use_message = false)
     {
-        std::unique_ptr<TavError, decltype(&tav_error_free)> owned(error, tav_error_free);
-        if (error != nullptr)
+        try
+        {
+            tav::check(error);
+        }
+        catch (const tav::Exception& failure)
         {
             Error code = fallback;
-            switch (tav_error_code(error))
+            switch (static_cast<int>(failure.code()))
             {
                 case TAV_ERROR_CBOR_DECODE_FAILED: code = Error::DECODE_FAILED; break;
                 case TAV_ERROR_CBOR_KEY_NOT_FOUND: code = Error::KEY_NOT_FOUND; break;
@@ -388,7 +361,7 @@ private:
                 case TAV_ERROR_CBOR_ENCODE_FAILED: code = Error::ENCODE_FAILED; break;
                 default: break;
             }
-            throw Exception(code, use_message ? tav_error_message(error) : what);
+            throw Exception(code, use_message ? failure.what() : what);
         }
     }
 
@@ -428,11 +401,14 @@ private:
 
     [[nodiscard]] std::vector<uint8_t> encode(Encoder encoder, size_t max_depth) const
     {
-        Buffer out;
+        TavByteBuffer* out = nullptr;
+        TavError* error = encoder(handle_, max_depth, &out);
+        const auto buffer = tav::ByteBuffer::adopt(out);
         check_error<EncodeError>(
-          encoder(handle_, max_depth, out.ptr()),
+          error,
           "Serialization failed", Error::ENCODE_FAILED, true);
-        return out.to_vector();
+        const auto bytes = buffer.bytes();
+        return {bytes.begin(), bytes.end()};
     }
 
     TavCborHandle* handle_ = nullptr;

@@ -5,7 +5,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <tav/utils.h>
+#include <tav/byte_buffer.h>
+#include <tav/errors.h>
 
 #ifdef __cplusplus
 extern "C" {

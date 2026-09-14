@@ -11,6 +11,7 @@
 
 #include <tav/errors.h>
 
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -76,9 +77,9 @@ inline void check(TavError* error)
     {
         return;
     }
+    const std::unique_ptr<TavError, decltype(&tav_error_free)> owned(error, tav_error_free);
     const ErrorCode code = static_cast<ErrorCode>(tav_error_code(error));
     const std::string message = tav_error_message(error);
-    tav_error_free(error);
     throw Exception(code, message);
 }
 }

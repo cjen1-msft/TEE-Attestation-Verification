@@ -394,6 +394,68 @@ TEST_CASE("cbor handle: invalid UTF-8 fails string construction")
       (void)make_string(std::string_view(invalid, 1)), EncodeError);
 }
 
+TEST_CASE("cbor handle: shared utilities preserve CBOR exception codes and messages")
+{
+    const auto decode_failure = [](auto&& operation, Error code, const char* message) {
+        try
+        {
+            operation();
+            FAIL("expected DecodeError");
+        }
+        catch (const DecodeError& error)
+        {
+            CHECK(error.error_code() == code);
+            CHECK(std::string(error.what()) == message);
+        }
+    };
+    const Value array = make_array({});
+    decode_failure([&] { (void)array.array_at(0); }, Error::OUT_OF_BOUND, "array_at");
+    decode_failure([&] { (void)array.as_signed(); }, Error::TYPE_MISMATCH, "as_signed");
+    const Value map = make_map({});
+    const Value key = make_signed(1);
+    decode_failure([&] { (void)map.map_at(key); }, Error::KEY_NOT_FOUND, "map_at");
+    const Value empty;
+    decode_failure([&] { (void)empty.as_signed(); }, Error::TYPE_MISMATCH, "as_signed");
+
+    const std::vector<uint8_t> invalid = {0x18};
+    TavCborHandle* out = nullptr;
+    TavError* raw_error = tav_cbor_det_parse(invalid.data(), invalid.size(), MAX_DEPTH, &out);
+    REQUIRE(raw_error != nullptr);
+    const std::string parse_message = tav_error_message(raw_error);
+    tav_error_free(raw_error);
+    REQUIRE(out == nullptr);
+    decode_failure(
+      [&] { (void)det_parse(invalid); }, Error::DECODE_FAILED, parse_message.c_str());
+
+    try
+    {
+        (void)make_simple(24);
+        FAIL("expected EncodeError");
+    }
+    catch (const EncodeError& error)
+    {
+        CHECK(error.error_code() == Error::ENCODE_FAILED);
+        CHECK(std::string(error.what()) == "make_simple");
+    }
+
+    TavByteBuffer* bytes = nullptr;
+    raw_error = tav_cbor_det_serialize(nullptr, MAX_DEPTH, &bytes);
+    REQUIRE(raw_error != nullptr);
+    const std::string encode_message = tav_error_message(raw_error);
+    tav_error_free(raw_error);
+    REQUIRE(bytes == nullptr);
+    try
+    {
+        (void)empty.det_serialize();
+        FAIL("expected EncodeError");
+    }
+    catch (const EncodeError& error)
+    {
+        CHECK(error.error_code() == Error::ENCODE_FAILED);
+        CHECK(std::string(error.what()) == encode_message);
+    }
+}
+
 TEST_CASE("cbor handle: simple values convert to and from booleans")
 {
     CHECK(simple_to_boolean(SimpleValue::True));

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(tav-cpp-consumer-tests CXX)
+project(tav-cpp-consumer-tests C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,18 @@ option(TAV_LINK_STATIC "Link the tests against the Rust static library" OFF)
 
 get_filename_component(TAV_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 set(TAV_CARGO_TARGET_DIR "${TAV_REPO_ROOT}/target")
+
+foreach(header IN ITEMS byte_buffer.h errors.h utils.h byte_buffer.hpp errors.hpp utils.hpp)
+    if(header MATCHES "\\.hpp$")
+        set(extension cpp)
+    else()
+        set(extension c)
+    endif()
+    set(source "${CMAKE_CURRENT_BINARY_DIR}/${header}.${extension}")
+    file(GENERATE OUTPUT "${source}" CONTENT "#include <tav/${header}>\n#include <tav/${header}>\n")
+    add_library("header-${header}" OBJECT "${source}")
+    target_include_directories("header-${header}" PRIVATE "${TAV_REPO_ROOT}/ffi/include")
+endforeach()
 
 if(TAV_LINK_STATIC)
     set(TAV_RUST_LIBRARY_KIND STATIC)
@@ -56,13 +68,15 @@ if(TAV_LINK_STATIC)
         OpenSSL::SSL OpenSSL::Crypto Threads::Threads ${CMAKE_DL_LIBS} m)
 endif()
 
-add_executable(tav-cpp-consumer-tests main.cpp snp.cpp)
+add_executable(tav-cpp-consumer-tests main.cpp snp.cpp moves.cpp)
 target_include_directories(tav-cpp-consumer-tests PRIVATE
     "${TAV_REPO_ROOT}/ffi/tests/c-consumer/vendor"
     "${TAV_REPO_ROOT}/ffi/include")
 target_compile_definitions(tav-cpp-consumer-tests PRIVATE TAV_REPO_ROOT="${TAV_REPO_ROOT}")
 target_link_libraries(tav-cpp-consumer-tests PRIVATE tav_cpp)
-target_compile_options(tav-cpp-consumer-tests PRIVATE -Wall -Wextra)
+target_compile_options(tav-cpp-consumer-tests PRIVATE
+    -Wall -Wextra -fsanitize=address -fno-omit-frame-pointer)
+target_link_options(tav-cpp-consumer-tests PRIVATE -fsanitize=address)
 
 if(NOT TAV_LINK_STATIC)
     set_target_properties(tav-cpp-consumer-tests PROPERTIES

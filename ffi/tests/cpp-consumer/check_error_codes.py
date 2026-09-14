@@ -51,6 +51,6 @@ def check_error_codes(c_source, cpp_source):
 if __name__ == "__main__":
     include = Path(__file__).resolve().parents[2] / "include" / "tav"
     check_error_codes(
-        (include / "utils.h").read_text(),
-        (include / "utils.hpp").read_text(),
+        (include / "errors.h").read_text(),
+        (include / "errors.hpp").read_text(),
     )

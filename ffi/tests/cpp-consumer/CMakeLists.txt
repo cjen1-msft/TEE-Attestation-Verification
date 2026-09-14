@@ -72,3 +72,6 @@ endif()
 
 enable_testing()
 add_test(NAME cpp-consumer COMMAND tav-cpp-consumer-tests)
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+add_test(NAME cpp-error-code-completeness
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/check_error_codes.py")

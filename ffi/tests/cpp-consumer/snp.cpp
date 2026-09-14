@@ -44,12 +44,45 @@ std::string hex(std::span<const uint8_t> bytes) {
     return hex_encode(bytes.data(), bytes.size());
 }
 
+void check_empty_accessors(const tav::snp::Report& report) {
+    REQUIRE(report.empty());
+    auto rejects_empty = [&report](auto accessor) {
+        try {
+            (void)(report.*accessor)();
+            FAIL("expected tav::Exception for an empty report");
+        } catch (const tav::Exception& error) {
+            CHECK(error.code() == tav::ErrorCode::IS_NULL);
+            CHECK(std::string(error.what()) == "Cannot access an empty SNP report");
+        }
+    };
+    auto check_all = [&rejects_empty](auto... accessors) {
+        (rejects_empty(accessors), ...);
+    };
+    using R = tav::snp::Report;
+    check_all(
+        &R::version, &R::guest_svn, &R::policy,
+        &R::policy_abi_minor, &R::policy_abi_major, &R::policy_smt,
+        &R::policy_migrate_ma, &R::policy_debug, &R::policy_single_socket,
+        &R::policy_cxl_allow, &R::policy_mem_aes_256_xts, &R::policy_rapl_dis,
+        &R::policy_ciphertext_hiding_dram, &R::policy_page_swap_disable,
+        &R::vmpl, &R::signature_algo, &R::platform_info, &R::flags,
+        &R::flags_author_key_en, &R::flags_mask_chip_key, &R::flags_signing_key,
+        &R::cpuid_fam_id, &R::cpuid_mod_id, &R::cpuid_step,
+        &R::current_build, &R::current_minor, &R::current_major,
+        &R::committed_build, &R::committed_minor, &R::committed_major,
+        &R::report_data, &R::family_id, &R::image_id, &R::platform_version,
+        &R::measurement, &R::host_data, &R::id_key_digest, &R::author_key_digest,
+        &R::report_id, &R::report_id_ma, &R::reported_tcb, &R::chip_id,
+        &R::committed_tcb, &R::launch_tcb, &R::signature_r, &R::signature_s);
+}
+
 } // namespace
 
 TEST_CASE("snp.hpp: every accessor exposes the golden Milan value") {
     MilanInputs in = load_milan_inputs();
 
     tav::snp::Report report = tav::snp::Report::verify(in.report, in.ark, in.ask, in.vcek);
+    CHECK_FALSE(report.empty());
 
     // Golden values mirror ffi/tests/c-consumer/snp.cpp, which are in turn
     // taken from demos/c-ffi/test-data/milan-output.golden.txt.
@@ -168,6 +201,20 @@ TEST_CASE("snp.hpp: moving a Report transfers ownership") {
     MilanInputs in = load_milan_inputs();
 
     tav::snp::Report report = tav::snp::Report::from_unverified_bytes(in.report);
+    CHECK_FALSE(report.empty());
     tav::snp::Report moved = std::move(report);
+    check_empty_accessors(report);
+    CHECK_FALSE(moved.empty());
     CHECK(moved.version() == 3);
+
+    report = std::move(moved);
+    check_empty_accessors(moved);
+    CHECK_FALSE(report.empty());
+    CHECK(report.version() == 3);
+
+    auto replacement = tav::snp::Report::from_unverified_bytes(in.report);
+    replacement = std::move(report);
+    check_empty_accessors(report);
+    CHECK_FALSE(replacement.empty());
+    CHECK(replacement.version() == 3);
 }

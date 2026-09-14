@@ -469,8 +469,7 @@ inline Value make_array(std::vector<Value>&& items)
     return Value::adopt(tav_cbor_make_array(batch.data(), batch.size()), "make_array");
 }
 
-/// Keys must be unique and must not be arrays, maps or tagged values, so that
-/// every key a map holds can also be passed to map_at. Duplicate keys are
+/// Keys may be any supported CBOR value and must be unique. Duplicate keys are
 /// unsupported: construction may succeed, but serialization throws EncodeError.
 inline Value make_map(std::vector<MapItem>&& entries)
 {
@@ -495,8 +494,7 @@ inline Value make_tagged(uint64_t tag, Value&& payload)
 
 /// Borrows raw, which must outlive the returned value.
 ///
-/// A document that keys a map entry on a container is rejected, so a parsed
-/// map holds only keys map_at can look up.
+/// Map keys use RFC 8949 equivalence, including order-independent map comparison.
 inline Value nondet_parse(std::span<const uint8_t> raw, size_t max_depth = MAX_DEPTH)
 {
     return Value::parse_with(tav_cbor_nondet_parse, raw, max_depth);

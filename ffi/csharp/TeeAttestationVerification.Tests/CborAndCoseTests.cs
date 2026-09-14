@@ -7,6 +7,19 @@ namespace TeeAttestationVerification.Tests;
 
 public sealed class CborAndCoseTests
 {
+    [Fact]
+    public void MapKeysCompareIndependentlyOfEntryOrder()
+    {
+        using CborValue map = CborValue.FromBytes(new byte[] { 0xa1, 0xa2, 1, 2, 3, 4, 7 });
+        using CborValue key = CborValue.FromBytes(new byte[] { 0xa2, 3, 4, 1, 2 });
+        Assert.True(map.TryGetValue(key, out CborValue? result));
+        using CborValue found = Assert.IsType<CborValue>(result);
+        using CborValue direct = map.MapAt(key);
+        map.Dispose();
+        Assert.Equal(7, found.GetInt64());
+        Assert.Equal(7, direct.GetInt64());
+    }
+
     private static readonly byte[] ProtectedHeader = [0xa1, 0x01, 0x26];
     private static readonly byte[] Payload = Encoding.UTF8.GetBytes("verification-only COSE vector");
     private static readonly byte[] Spki =

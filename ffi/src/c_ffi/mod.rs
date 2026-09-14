@@ -12,6 +12,7 @@
 // The CBOR ABI needs no crypto backend, so it is compiled whenever the crate
 // targets C consumers at all.
 pub(crate) mod cbor;
+mod cbor_read;
 #[cfg(test)]
 mod cbor_tests;
 

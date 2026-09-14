@@ -11,6 +11,10 @@
 
 use std::os::raw::c_char;
 
+use super::cbor;
+use super::cbor::into_view_handle as into_raw;
+use super::cbor_read;
+use super::cbor_read::{bytes as borrowed_bytes, map_entry as map_entry_at};
 use super::utils::{input_bytes, input_text, out_ptr, owned_out_ptr, TavByteBuffer};
 use crate::cbor_view::CborView;
 use crate::{into_result, TavError, TavErrorCode};
@@ -36,10 +40,6 @@ pub enum TavCborKind {
 
 /// An opaque, independently owned view into an immutable CBOR document.
 pub type TavCborValue = CborView;
-
-fn into_raw(view: CborView) -> *mut TavCborValue {
-    Box::into_raw(Box::new(view))
-}
 
 unsafe fn scalar_out_ptr<T: Default>(out: *mut T, name: &str) -> Result<(), TavError> {
     unsafe { out_ptr(out, name) }?;
@@ -75,24 +75,15 @@ unsafe fn cbor_handle<'a>(
 }
 
 fn kind(value: &NativeCborValue) -> TavCborKind {
-    match value {
-        NativeCborValue::Int(_) => TavCborKind::Int,
-        NativeCborValue::Simple(_) => TavCborKind::Simple,
-        NativeCborValue::ByteString(_) => TavCborKind::Bytes,
-        NativeCborValue::TextString(_) => TavCborKind::Text,
-        NativeCborValue::Array(_) => TavCborKind::Array,
-        NativeCborValue::Map(_) => TavCborKind::Map,
-        NativeCborValue::Tagged { .. } => TavCborKind::Tagged,
-    }
-}
-
-fn borrowed_bytes<'a>(value: &'a NativeCborValue, name: &str) -> Result<&'a [u8], TavError> {
-    match value {
-        NativeCborValue::ByteString(bytes) => Ok(bytes),
-        _ => Err(TavError::new(
-            TavErrorCode::CoseUnexpectedType,
-            format!("{name} must be a byte string"),
-        )),
+    match cbor::kind_of(value) {
+        cbor::KIND_SIGNED => TavCborKind::Int,
+        cbor::KIND_SIMPLE => TavCborKind::Simple,
+        cbor::KIND_BYTES => TavCborKind::Bytes,
+        cbor::KIND_STRING => TavCborKind::Text,
+        cbor::KIND_ARRAY => TavCborKind::Array,
+        cbor::KIND_MAP => TavCborKind::Map,
+        cbor::KIND_TAGGED => TavCborKind::Tagged,
+        _ => unreachable!("native CBOR kind"),
     }
 }
 
@@ -123,27 +114,6 @@ fn sign1_field<'a>(
     })
 }
 
-fn map_entry_at(
-    value: &NativeCborValue,
-    index: usize,
-) -> Result<(&NativeCborValue, &NativeCborValue), TavError> {
-    match value {
-        NativeCborValue::Map(entries) => entries
-            .get(index)
-            .map(|(key, value)| (key, value))
-            .ok_or_else(|| {
-                TavError::new(
-                    TavErrorCode::CoseCbor,
-                    format!("Index {index} out of bounds"),
-                )
-            }),
-        _ => Err(TavError::new(
-            TavErrorCode::CoseUnexpectedType,
-            "value must be a map",
-        )),
-    }
-}
-
 #[no_mangle]
 pub unsafe extern "C" fn tav_cbor_value_from_bytes(
     bytes: *const u8,
@@ -153,7 +123,7 @@ pub unsafe extern "C" fn tav_cbor_value_from_bytes(
     into_result(|| {
         unsafe { owned_out_ptr(out_value, "out_value") }?;
         let bytes = unsafe { input_bytes(bytes, len, "CBOR bytes", false) }?;
-        let value = cose::CborValue::parse_nondet(bytes)
+        let value = cbor_read::parse::<::cbor::Nondet>(bytes, ::cbor::MAX_CBOR_NESTING_DEPTH)
             .map_err(|error| TavError::new(TavErrorCode::CoseCbor, error))?;
         unsafe {
             *out_value = into_raw(CborView::new(value));
@@ -170,8 +140,7 @@ pub unsafe extern "C" fn tav_cbor_value_to_bytes(
     into_result(|| {
         unsafe { owned_out_ptr(out_bytes, "out_bytes") }?;
         let value = unsafe { cbor_value(value, "value") }?;
-        let bytes = value
-            .to_bytes_det()
+        let bytes = cbor_read::serialize::<::cbor::Det>(value, ::cbor::MAX_CBOR_NESTING_DEPTH)
             .map_err(|error| TavError::new(TavErrorCode::CoseCbor, error))?;
         unsafe {
             *out_bytes = Box::into_raw(TavByteBuffer::from_bytes(bytes));
@@ -193,15 +162,7 @@ pub unsafe extern "C" fn tav_cbor_value_int(
     into_result(|| {
         unsafe { scalar_out_ptr(out, "out") }?;
         let value = unsafe { cbor_value(value, "value") }?;
-        let int = match value {
-            NativeCborValue::Int(value) => *value,
-            _ => {
-                return Err(TavError::new(
-                    TavErrorCode::CoseUnexpectedType,
-                    "value must be an int",
-                ))
-            }
-        };
+        let int = cbor_read::int(value)?;
         unsafe {
             *out = int;
         }
@@ -217,15 +178,7 @@ pub unsafe extern "C" fn tav_cbor_value_simple(
     into_result(|| {
         unsafe { scalar_out_ptr(out, "out") }?;
         let value = unsafe { cbor_value(value, "value") }?;
-        let simple = match value {
-            NativeCborValue::Simple(value) => *value,
-            _ => {
-                return Err(TavError::new(
-                    TavErrorCode::CoseUnexpectedType,
-                    "value must be simple",
-                ))
-            }
-        };
+        let simple = cbor_read::simple(value)?;
         unsafe {
             *out = simple;
         }
@@ -266,15 +219,7 @@ pub unsafe extern "C" fn tav_cbor_value_text(
             scalar_out_ptr(len, "len")?;
         }
         let value = unsafe { cbor_value(value, "value") }?;
-        let value = match value {
-            NativeCborValue::TextString(value) => value.as_bytes(),
-            _ => {
-                return Err(TavError::new(
-                    TavErrorCode::CoseUnexpectedType,
-                    "value must be text",
-                ))
-            }
-        };
+        let value = cbor_read::text(value)?.as_bytes();
         unsafe {
             *text = value.as_ptr().cast();
             *len = value.len();
@@ -291,15 +236,7 @@ pub unsafe extern "C" fn tav_cbor_value_tag(
     into_result(|| {
         unsafe { scalar_out_ptr(out, "out") }?;
         let value = unsafe { cbor_value(value, "value") }?;
-        let tag = match value {
-            NativeCborValue::Tagged { tag, .. } => *tag,
-            _ => {
-                return Err(TavError::new(
-                    TavErrorCode::CoseUnexpectedType,
-                    "value must be tagged",
-                ))
-            }
-        };
+        let (tag, _) = cbor_read::tagged(value)?;
         unsafe {
             *out = tag;
         }
@@ -315,13 +252,8 @@ pub unsafe extern "C" fn tav_cbor_value_tagged_payload(
     into_result(|| {
         unsafe { owned_out_ptr(out_value, "out_value") }?;
         let handle = unsafe { cbor_handle(value, "value") }?;
-        let [payload] = handle.project(|value| match value {
-            NativeCborValue::Tagged { payload, .. } => Ok([payload.as_ref()]),
-            _ => Err(TavError::new(
-                TavErrorCode::CoseUnexpectedType,
-                "value must be tagged",
-            )),
-        })?;
+        let [payload] =
+            handle.project(|value| cbor_read::tagged(value).map(|(_, payload)| [payload]))?;
         unsafe {
             *out_value = into_raw(payload);
         }
@@ -581,11 +513,7 @@ pub unsafe extern "C" fn tav_validate_cose_sign1(
 
 #[no_mangle]
 pub unsafe extern "C" fn tav_cbor_value_free(value: *mut TavCborValue) {
-    if !value.is_null() {
-        unsafe {
-            drop(Box::from_raw(value));
-        }
-    }
+    unsafe { cbor::tav_cbor_free(value) };
 }
 
 #[no_mangle]

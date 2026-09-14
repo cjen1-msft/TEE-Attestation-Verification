@@ -82,7 +82,7 @@ struct VerifiedArtifacts {
     TavCborValue *uvm_endorsement = nullptr;
 
     ~VerifiedArtifacts() {
-        tav_cbor_value_free(uvm_endorsement);
+        tav_cbor_free(reinterpret_cast<TavCborHandle *>(uvm_endorsement));
         tav_snp_attestation_report_free(attestation);
     }
 };

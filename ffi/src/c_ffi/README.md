@@ -62,30 +62,55 @@ tav_byte_buffer_free(encoded);
 tav_cbor_free(value);
 ```
 
-## Legacy COSE CBOR handle ownership
+## Migrate CBOR calls from cose.h
 
-The `TavCborValue*` API in `tav/cose.h` remains separate and unchanged.
-Do not mix it with `TavCborHandle*`, or interchange their kind constants.
+The `tav_cbor_value_*` functions in `tav/cose.h` are deprecated. Their symbols,
+signatures, error codes, messages, and output-reset rules remain compatible.
+COSE validation and verification are **not deprecated**. Neither are the COSE
+constants or the `TavCborValue` type used by those functions. C# and WASM APIs
+are unchanged.
 
-Every CBOR parser, navigation, and COSE validation function returns an
-independently owned `TavCborValue *`. Projected handles share the immutable
-parsed document through reference counting; they do not clone a subtree or
-serialize and reparse it. Free every returned handle with the null-safe
-`tav_cbor_value_free`. Parent and child handles may be freed in any order:
+Include `tav/cbor.h` and use `TavCborHandle*` for new CBOR code. Replace calls
+according to this table. All names below have the `tav_cbor_` prefix.
 
-```c
-TavCborValue *root = NULL;
-TavCborValue *child = NULL;
-tav_cbor_value_from_bytes(cbor, cbor_len, &root);
-tav_cbor_value_array_at(root, 0, &child);
+| Legacy suffix | Replacement suffix |
+| --- | --- |
+| `value_from_bytes` | `nondet_parse`, with depth 64 |
+| `value_to_bytes` | `det_serialize`, with depth 64 |
+| `value_kind` | `kind`, with `TAV_CBOR_HANDLE_KIND_*` constants |
+| `value_int`, `value_simple`, `value_bytes`, `value_text` | `as_signed`, `as_simple`, `as_bytes`, `as_string` |
+| `value_tag`, `value_len` | `as_tag`, `size` |
+| `value_tagged_payload` | `as_tag`, then `tag_at` |
+| `value_array_at`, `value_map_at` | `array_at`, `map_at` |
+| `value_map_at_int`, `value_map_at_text` | `make_signed` or `make_string`, then `map_at`; free the key afterward |
+| `value_map_has_key`, `value_map_has_int_key`, `value_map_has_text_key` | `map_at`; only `TAV_ERROR_CBOR_KEY_NOT_FOUND` means absent; free any result and error |
+| `value_map_entry_at` | `map_key_at`, then `map_value_at`; free the key if the second call fails |
+| `value_map_key_at`, `value_map_value_at` | `map_key_at`, `map_value_at` |
+| `value_free` | `free` |
 
-tav_cbor_value_free(root); /* child remains valid */
-TavCborKind kind = tav_cbor_value_kind(child);
-tav_cbor_value_free(child);
-```
+Legacy parsing copies payloads. Generic parsing borrows them. Keep the input
+alive and unchanged until all derived handles are freed. If you need an owned
+tree, call `tav_cbor_deep_copy` on the parsed handle before releasing the input,
+then free the borrowed handle. Navigation shares the document without copying
+payloads. Map lookup supports arbitrary CBOR keys, including arrays and maps.
 
-Byte and text pointers are borrowed from the handle passed to their accessor and
-remain valid until that handle is freed.
+Do not reuse legacy kind constants with `tav_cbor_kind`: their values differ.
+Generic readers use `TAV_ERROR_CBOR_*` codes and leave scalar and borrowed
+outputs unchanged on failure. Legacy readers clear those outputs. Both APIs
+clear owned output slots before work. Keep depth 64 to preserve the legacy
+parse and serialize limit; the generic API permits up to `TAV_CBOR_MAX_DEPTH`.
+
+The opaque handle types have the same representation. Cast a handle pointer
+explicitly when passing a generic value to COSE validation or verification,
+or when reading a returned COSE or CACI handle with the generic API. This does
+not copy data or create another ownership reference. Never cast a
+pointer-to-pointer output slot. Use a variable of the declared output type,
+then cast its value. Free each owned handle exactly once with `tav_cbor_free`.
+Borrowed generic input must also outlive any validated COSE handle.
+
+For a complete example, see
+[`print_uvm_endorsement`](../../../demos/caci-c-ffi/demo.c), which reads a CACI
+result with the generic CBOR API and keeps its borrowed input alive.
 
 ## SNP verification
 

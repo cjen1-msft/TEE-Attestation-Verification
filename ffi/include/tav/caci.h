@@ -24,7 +24,7 @@ extern "C" {
  *   obtain an owned TavSnpAttestationReport.
  * - tav_verify_caci_uvm_endorsement returns an owned TavCborValue containing
  *   the verified UVM COSE/CBOR document. Inspect it with the CBOR accessors in
- *   tav/cose.h and release it with tav_cbor_value_free.
+ *   tav/cbor.h after casting to TavCborHandle*, and release it with tav_cbor_free.
  * - tav_verify_caci_attestation writes an owned TavByteBuffer* through
  *   out_report_data. Read it with tav_byte_buffer_data/tav_byte_buffer_len and
  *   release it with tav_byte_buffer_free.

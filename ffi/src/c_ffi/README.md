@@ -4,6 +4,11 @@ Native C ABI for SNP, COSE, and CACI verification. Headers live under
 `ffi/include/tav/`; each header's usage summary documents its own surface in
 more detail (`snp.h`, `cose.h`, `caci.h`, `utils.h`).
 
+C++ consumers can use the RAII wrappers instead of the raw C ABI: `utils.hpp`
+(`tav::Exception`, `tav::ByteBuffer`) and `snp.hpp` (`tav::snp::Report`). See
+`ffi/tests/cpp-consumer/` for worked examples and
+`ffi/tests/cpp-consumer/CMakeLists.txt` for a CMake setup.
+
 All public functions return `NULL` on success or an owned `TavError*` on
 failure. Inspect failures with `tav_error_code`/`tav_error_message`, then free
 them with `tav_error_free`. Owned handle out-parameters are reset to `NULL`

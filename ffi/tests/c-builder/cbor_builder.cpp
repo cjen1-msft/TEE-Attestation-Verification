@@ -24,6 +24,20 @@ static_assert(!std::is_copy_assignable_v<Value>);
 static_assert(std::is_move_constructible_v<Value>);
 static_assert(std::is_move_assignable_v<Value>);
 static_assert(!std::is_constructible_v<Value, TavCborHandle*>);
+static_assert(static_cast<int>(Error::OK) == 0);
+static_assert(static_cast<int>(Error::DECODE_FAILED) == 1);
+static_assert(static_cast<int>(Error::KEY_NOT_FOUND) == 2);
+static_assert(static_cast<int>(Error::OUT_OF_BOUND) == 3);
+static_assert(static_cast<int>(Error::TYPE_MISMATCH) == 4);
+static_assert(static_cast<int>(Error::ENCODE_FAILED) == 5);
+static_assert(static_cast<int>(Kind::INVALID) == -1);
+static_assert(static_cast<int>(Kind::SIGNED) == 0);
+static_assert(static_cast<int>(Kind::BYTES) == 1);
+static_assert(static_cast<int>(Kind::STRING) == 2);
+static_assert(static_cast<int>(Kind::ARRAY) == 3);
+static_assert(static_cast<int>(Kind::MAP) == 4);
+static_assert(static_cast<int>(Kind::TAGGED) == 5);
+static_assert(static_cast<int>(Kind::SIMPLE) == 6);
 
 namespace {
 
@@ -32,7 +46,47 @@ std::vector<uint8_t> vec(std::span<const uint8_t> data)
     return {data.begin(), data.end()};
 }
 
+template<class Exception, class Action>
+void expect_error(Action action, Error code)
+{
+    try
+    {
+        action();
+        FAIL("expected a CBOR exception");
+    }
+    catch (const Exception& error)
+    {
+        CHECK(error.error_code() == code);
+    }
+}
+
 } // namespace
+
+TEST_CASE("cbor handle: owned errors preserve C++ classifications")
+{
+    expect_error<EncodeError>([] { (void)make_simple(24); }, Error::ENCODE_FAILED);
+    expect_error<EncodeError>(
+      [] { (void)make_string(std::string_view("\xff", 1)); }, Error::ENCODE_FAILED);
+    const Value empty;
+    expect_error<EncodeError>([&] { (void)shallow_copy(empty); }, Error::ENCODE_FAILED);
+    expect_error<EncodeError>([&] { (void)deep_copy(empty); }, Error::ENCODE_FAILED);
+    expect_error<EncodeError>([&] { (void)empty.det_serialize(); }, Error::ENCODE_FAILED);
+    expect_error<EncodeError>([&] { (void)empty.nondet_serialize(); }, Error::ENCODE_FAILED);
+    expect_error<DecodeError>([&] { (void)empty.as_signed(); }, Error::TYPE_MISMATCH);
+    const Value map = make_map({});
+    const Value key = make_signed(1);
+    expect_error<DecodeError>([&] { (void)map.map_at(key); }, Error::KEY_NOT_FOUND);
+    const Value tagged = make_tagged(18, make_signed(1));
+    expect_error<DecodeError>([&] { (void)tagged.tag_at(19); }, Error::KEY_NOT_FOUND);
+
+    std::vector<Value> batch;
+    batch.push_back(make_signed(1));
+    batch.emplace_back();
+    expect_error<EncodeError>(
+      [&] { (void)make_array(std::move(batch)); }, Error::ENCODE_FAILED);
+    CHECK(batch[0].empty());
+    CHECK(batch[1].empty());
+}
 
 TEST_CASE("cbor handle: signed round trips")
 {

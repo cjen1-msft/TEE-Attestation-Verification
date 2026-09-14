@@ -1,10 +1,10 @@
 # C ABI
 
-Native C ABI for SNP, COSE, and CACI verification. Headers live under
+Native C ABI for CBOR, SNP, COSE, and CACI verification. Headers live under
 `ffi/include/tav/`; each header's usage summary documents its own surface in
-more detail (`snp.h`, `cose.h`, `caci.h`, `utils.h`).
+more detail (`cbor.h`, `snp.h`, `cose.h`, `caci.h`, `utils.h`).
 
-All public functions return `NULL` on success or an owned `TavError*` on
+Fallible public functions return `NULL` on success or an owned `TavError*` on
 failure. Inspect failures with `tav_error_code`/`tav_error_message`, then free
 them with `tav_error_free`. Owned handle out-parameters are reset to `NULL`
 before any fallible work and set only on success.
@@ -24,7 +24,48 @@ That produces `libtee_attestation_verification_ffi.{a,so}` under
 `ffi/tests/c-consumer/CMakeLists.txt`
 for a worked CMake setup, including static linking.
 
-## CBOR handle ownership
+## Generic CBOR
+
+`tav/cbor.h` exposes builders, deterministic and non-deterministic parsing,
+serialization, copies, and navigation through opaque `TavCborHandle*` handles.
+`tav/cbor.hpp` provides the C++ RAII wrapper with its existing signatures,
+exception types, and `Error` and `Kind` values.
+
+The generic API borrows input byte and text buffers. Keep each buffer alive
+and unmodified while any derived handle is in use, including projected
+children and shallow copies. `tav_cbor_deep_copy` copies all payloads.
+Navigation returns independently owned handles, so you can free a parent
+before its children. Release every handle with `tav_cbor_free`.
+
+Container builders consume input handles and clear their slots. Duplicate
+or null handles reject the whole batch without consuming it. Output slots
+must not alias input slots. Parsing and serialization enforce a maximum
+depth of `TAV_CBOR_MAX_DEPTH`; builders do not limit nesting.
+
+Serialization returns an owned `TavByteBuffer*`. Read it with
+`tav_byte_buffer_data` and `tav_byte_buffer_len`, then release it with
+`tav_byte_buffer_free`. Errors use the shared `TavError*` API, not separate
+message buffers. Generic CBOR failures have `TAV_ERROR_CBOR_*` codes.
+
+```c
+TavCborHandle *value = NULL;
+TavByteBuffer *encoded = NULL;
+TavError *error = tav_cbor_make_signed(42, &value);
+if (error == NULL) {
+	error = tav_cbor_det_serialize(value, TAV_CBOR_MAX_DEPTH, &encoded);
+}
+if (error != NULL) {
+	fprintf(stderr, "%s\n", tav_error_message(error));
+	tav_error_free(error);
+}
+tav_byte_buffer_free(encoded);
+tav_cbor_free(value);
+```
+
+## Legacy COSE CBOR handle ownership
+
+The `TavCborValue*` API in `tav/cose.h` remains separate and unchanged.
+Do not mix it with `TavCborHandle*`, or interchange their kind constants.
 
 Every CBOR parser, navigation, and COSE validation function returns an
 independently owned `TavCborValue *`. Projected handles share the immutable

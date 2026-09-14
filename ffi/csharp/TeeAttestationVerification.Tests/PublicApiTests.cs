@@ -32,6 +32,11 @@ public sealed class PublicApiTests
                 ("TAV_ERROR_CACI_SIGNATURE", nameof(ErrorCode.CaciSignature)),
                 ("TAV_ERROR_CACI_MEASUREMENT", nameof(ErrorCode.CaciMeasurement)),
                 ("TAV_ERROR_CACI_POLICY", nameof(ErrorCode.CaciPolicy)),
+                ("TAV_ERROR_CBOR_DECODE_FAILED", nameof(ErrorCode.CborDecodeFailed)),
+                ("TAV_ERROR_CBOR_KEY_NOT_FOUND", nameof(ErrorCode.CborKeyNotFound)),
+                ("TAV_ERROR_CBOR_OUT_OF_BOUND", nameof(ErrorCode.CborOutOfBound)),
+                ("TAV_ERROR_CBOR_TYPE_MISMATCH", nameof(ErrorCode.CborTypeMismatch)),
+                ("TAV_ERROR_CBOR_ENCODE_FAILED", nameof(ErrorCode.CborEncodeFailed)),
             ]);
     }
 

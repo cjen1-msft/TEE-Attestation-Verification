@@ -46,6 +46,17 @@ public enum ErrorCode
     CaciMeasurement = 305,
     /// <summary>The CACI relying-party policy rejected the attestation.</summary>
     CaciPolicy = 306,
+
+    /// <summary>Generic CBOR parsing failed.</summary>
+    CborDecodeFailed = 401,
+    /// <summary>A generic CBOR map key or tag was not found.</summary>
+    CborKeyNotFound = 402,
+    /// <summary>A generic CBOR array or map index is out of bounds.</summary>
+    CborOutOfBound = 403,
+    /// <summary>A generic CBOR read received a null argument or an unexpected kind.</summary>
+    CborTypeMismatch = 404,
+    /// <summary>Generic CBOR construction, copying, or serialization failed.</summary>
+    CborEncodeFailed = 405,
 }
 
 /// <summary>The CBOR major type represented by a <see cref="CborValue"/>.</summary>

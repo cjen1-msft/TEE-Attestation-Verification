@@ -111,7 +111,11 @@ pub unsafe extern "C" fn tav_verify_snp_attestation(
         // SAFETY: The caller keeps report_bytes readable for report_len bytes during this call.
         let report_bytes =
             unsafe { input_bytes(report_bytes, report_len, "attestation report", false) }?;
-        let report = parse_report(report_bytes)?;
+        parse_report(report_bytes)?;
+        let owned_report = TavSnpAttestationReport {
+            bytes: report_bytes.to_vec(),
+        };
+        let report = parse_report(&owned_report.bytes)?;
 
         // SAFETY: The caller keeps each PEM buffer readable for its supplied length during this call.
         let ark_pem = unsafe { input_bytes(ark_pem, ark_pem_len, "ARK", false) }?;
@@ -141,12 +145,9 @@ pub unsafe extern "C" fn tav_verify_snp_attestation(
         )
         .map_err(tav_error_from_verification_error)?;
 
-        let report = TavSnpAttestationReport {
-            bytes: report_bytes.to_vec(),
-        };
         // SAFETY: out_report was checked above and remains writable until this call returns.
         unsafe {
-            *out_report = Box::into_raw(Box::new(report));
+            *out_report = Box::into_raw(Box::new(owned_report));
         }
         Ok(())
     })

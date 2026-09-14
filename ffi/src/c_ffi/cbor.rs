@@ -183,32 +183,6 @@ pub(crate) fn kind_of(value: &CborValue<'static>) -> i32 {
     }
 }
 
-/// Whether `value` may be used as a map key.
-///
-/// Containers are excluded, so that every key a map can hold is also a key
-/// the C ABI can look up. Parsing enforces the same rule, so a map reached
-/// through this ABI never holds a key that map_at would refuse.
-pub(crate) fn usable_as_key(value: &CborValue<'static>) -> bool {
-    !matches!(
-        value,
-        CborValue::Array(_) | CborValue::Map(_) | CborValue::Tagged { .. }
-    )
-}
-
-/// Whether every map below `value` keys its entries on something usable.
-///
-/// Recursion is bounded by the depth the parse was capped to.
-pub(crate) fn keys_are_usable(value: &CborValue<'static>) -> bool {
-    match value {
-        CborValue::Array(items) => items.iter().all(keys_are_usable),
-        CborValue::Map(entries) => entries
-            .iter()
-            .all(|(key, item)| usable_as_key(key) && keys_are_usable(item)),
-        CborValue::Tagged { payload, .. } => keys_are_usable(payload),
-        _ => true,
-    }
-}
-
 /// Whether `value` is a simple value RFC 8949 reserves.
 ///
 /// The reserved range has no encoding, so a handle holding one could be
@@ -355,9 +329,7 @@ pub unsafe extern "C" fn tav_cbor_make_array(
 
 /// Build a map, consuming `2 * pair_count` handles ordered key, value, key, value.
 ///
-/// Keys must not be arrays, maps or tagged values, matching the lookup
-/// [`tav_cbor_map_at`] offers. Invalid keys are rejected without consuming any
-/// handles. Duplicate keys are unsupported and fail during serialization.
+/// Keys may be any supported CBOR value. Duplicate keys fail during serialization.
 ///
 /// # Safety
 /// `pairs` must be valid for `2 * pair_count` handle variables.
@@ -370,23 +342,6 @@ pub unsafe extern "C" fn tav_cbor_make_map(
         let Some(total) = pair_count.checked_mul(2) else {
             return std::ptr::null_mut();
         };
-        if total != 0 && pairs.is_null() {
-            return std::ptr::null_mut();
-        }
-        let pairs_slice = if total == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(pairs, total) }
-        };
-        for pair in pairs_slice.chunks_exact(2) {
-            let Some(key) = (unsafe { as_handle(pair[0]) }) else {
-                return std::ptr::null_mut();
-            };
-            if !usable_as_key(key.as_native()) {
-                return std::ptr::null_mut();
-            }
-        }
-
         let Some(values) = (unsafe { take_all(pairs, total) }) else {
             return std::ptr::null_mut();
         };
@@ -565,10 +520,6 @@ unsafe fn parse<M: Mode>(
     };
     match CborValue::parse_with_depth::<M>(bytes, capped(max_depth)) {
         Ok(value) => {
-            if !keys_are_usable(&value) {
-                unsafe { set_error("Container used as a map key", err_ptr, err_len) };
-                return STATUS_DECODE_FAILED;
-            }
             unsafe { *out_value = into_handle(value) };
             STATUS_OK
         }
@@ -582,9 +533,8 @@ unsafe fn parse<M: Mode>(
 /// Parse.
 ///
 /// Indefinite-length encodings are rejected, and the whole input must be
-/// consumed. A document that keys a map entry on a container is rejected too,
-/// so a parsed map holds only keys [`tav_cbor_map_at`] can look up. The
-/// returned tree borrows byte and text payloads from `data`, which must
+/// consumed. Keys may be any supported CBOR value. The returned tree borrows
+/// byte and text payloads from `data`, which must
 /// outlive it. The handle and message outputs are cleared before any work, so
 /// a failure leaves no stale handle to free.
 ///
@@ -833,7 +783,7 @@ pub unsafe extern "C" fn tav_cbor_array_at(
 
 /// Return an independently owned map value by key.
 ///
-/// Containers are not usable as keys and are reported as a type mismatch.
+/// Keys use RFC 8949 equivalence, including order-independent map comparison.
 ///
 /// # Safety
 /// `value` and `key` must be null or live handles. `out` must point to a null
@@ -856,13 +806,10 @@ pub unsafe extern "C" fn tav_cbor_map_at(
             return STATUS_TYPE_MISMATCH;
         };
         let key = key.as_native();
-        if !usable_as_key(key) {
-            return STATUS_TYPE_MISMATCH;
-        }
         match project_handle(handle, |value| match value {
             CborValue::Map(entries) => entries
                 .iter()
-                .find(|(candidate, _)| candidate == key)
+                .find(|(candidate, _)| candidate.key_equivalent(key))
                 .map(|(_, found)| [found])
                 .ok_or(STATUS_KEY_NOT_FOUND),
             _ => Err(STATUS_TYPE_MISMATCH),

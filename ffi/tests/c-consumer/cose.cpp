@@ -67,6 +67,25 @@ struct CborHandle {
 
 } // namespace
 
+TEST_CASE("cbor: map keys compare independently of entry order") {
+    const uint8_t encoded[] = {0xa1, 0xa2, 1, 2, 3, 4, 7};
+    const uint8_t reordered[] = {0xa2, 3, 4, 1, 2};
+    CborHandle root;
+    CborHandle key;
+    CborHandle found;
+    REQUIRE(tav_cbor_value_from_bytes(encoded, sizeof(encoded), root.out()) == nullptr);
+    REQUIRE(tav_cbor_value_from_bytes(reordered, sizeof(reordered), key.out()) == nullptr);
+    bool present = false;
+    REQUIRE(tav_cbor_value_map_has_key(root.value, key.value, &present) == nullptr);
+    CHECK(present);
+    REQUIRE(tav_cbor_value_map_at(root.value, key.value, found.out()) == nullptr);
+    tav_cbor_value_free(root.value);
+    root.value = nullptr;
+    int64_t number = 0;
+    REQUIRE(tav_cbor_value_int(found.value, &number) == nullptr);
+    CHECK(number == 7);
+}
+
 TEST_CASE("cbor: array children are independently owned views") {
     const uint8_t cbor[] = {0x82, 0x01, 0x42, 0xaa, 0xbb};
     CborHandle root;

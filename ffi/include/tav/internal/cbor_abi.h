@@ -22,8 +22,7 @@ extern "C" {
  *   tav_cbor_free(NULL) is a no-op.
  * - Container constructors consume every handle passed to them and set each
  *   caller variable to NULL. A batch containing NULL or the same handle more
- *   than once is rejected without consuming any handles. A map with an invalid
- *   key is also rejected without consuming any handles.
+ *   than once is rejected without consuming any handles.
  * - Navigation returns a new owning handle projected into the same immutable
  *   document. It remains valid after the source handle is freed.
  *
@@ -100,7 +99,7 @@ TavCborHandle* tav_cbor_make_string(const char* data, size_t len);
 TavCborHandle* tav_cbor_make_array(TavCborHandle** items, size_t count);
 /*
  * pairs holds key, value, key, value, ... so it has 2 * pair_count entries.
- * Keys must be unique and must not be arrays, maps or tagged values. Duplicate
+ * Keys may be any supported CBOR value and must be unique. Duplicate
  * keys are unsupported: construction may succeed, but serialization fails.
  */
 TavCborHandle* tav_cbor_make_map(TavCborHandle** pairs, size_t pair_count);
@@ -148,8 +147,7 @@ int tav_cbor_det_serialize(
  * Parsing. On success writes an owning handle through out_value. The returned
  * tree borrows byte and text payloads from data, which must outlive it.
  *
- * A document whose maps key an entry on an array, map or tagged value is
- * rejected, so a parsed map holds only keys map_at can look up.
+ * Map keys use RFC 8949 equivalence, including order-independent map comparison.
  */
 int tav_cbor_nondet_parse(
   const uint8_t* data,
@@ -189,9 +187,7 @@ int tav_cbor_size(const TavCborHandle* value, size_t* out);
  * separate from every input-handle variable.
  *
  * array_at: TYPE_MISMATCH if not an array, OUT_OF_BOUND past the end.
- * map_at:   TYPE_MISMATCH if not a map or if the key is a container, which a
- *           map cannot hold,
- *           KEY_NOT_FOUND if absent.
+ * map_at:   TYPE_MISMATCH if not a map, KEY_NOT_FOUND if absent.
  * tag_at:   TYPE_MISMATCH if not tagged, KEY_NOT_FOUND if the tag differs.
  */
 int tav_cbor_array_at(const TavCborHandle* value, size_t index, TavCborHandle** out);

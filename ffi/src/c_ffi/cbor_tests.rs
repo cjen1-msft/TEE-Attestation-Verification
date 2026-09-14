@@ -318,8 +318,7 @@ fn a_repeated_handle_is_rejected_without_consuming_the_batch() {
 }
 
 #[test]
-fn a_container_cannot_be_a_map_key() {
-    // Every key a map holds must be one tav_cbor_map_at can compare.
+fn a_container_can_be_a_map_key() {
     for key in [
         unsafe { tav_cbor_make_array(ptr::null_mut(), 0) },
         unsafe { tav_cbor_make_map(ptr::null_mut(), 0) },
@@ -329,15 +328,23 @@ fn a_container_cannot_be_a_map_key() {
         },
     ] {
         let value = tav_cbor_make_signed(7);
+        let lookup = unsafe { tav_cbor_shallow_copy(key) };
         let mut pairs = vec![key, value];
         let map = unsafe { tav_cbor_make_map(pairs.as_mut_ptr(), 1) };
 
-        assert!(map.is_null());
-        // Nothing was consumed, so the caller still owns both handles.
-        assert_eq!(pairs[0], key);
-        assert_eq!(pairs[1], value);
-        unsafe { tav_cbor_free(key) };
-        unsafe { tav_cbor_free(value) };
+        assert!(!map.is_null());
+        assert!(pairs.iter().all(|handle| handle.is_null()));
+        let mut found = ptr::null_mut();
+        assert_eq!(
+            unsafe { tav_cbor_map_at(map, lookup, &mut found) },
+            STATUS_OK
+        );
+        assert_eq!(encode_det(found).unwrap(), [7]);
+        unsafe {
+            tav_cbor_free(found);
+            tav_cbor_free(lookup);
+            tav_cbor_free(map);
+        }
     }
 }
 
@@ -666,28 +673,24 @@ fn map_lookup_matches_by_value() {
 }
 
 #[test]
-fn parsing_rejects_a_container_used_as_a_map_key() {
-    // {[1]: 2}, which map_at could never look up.
-    let document = [0xa1, 0x81, 0x01, 0x02];
-    assert!(parse_nondet(&document).is_err());
-    assert!(decode(&document, MAX_DEPTH_LIMIT, true).is_err());
-
-    // Nested below the root, so the whole tree is checked.
-    let nested = [0x81, 0xa1, 0x81, 0x01, 0x02]; // [{[1]: 2}]
-    assert!(parse_nondet(&nested).is_err());
-
-    // A map key is also rejected under a tag.
-    let tagged = [0xd2, 0xa1, 0x81, 0x01, 0x02]; // 18({[1]: 2})
-    assert!(parse_nondet(&tagged).is_err());
-
-    // Scalar keys of every kind still parse.
-    let scalars = [0xa2, 0x01, 0x02, 0x63, 0x6b, 0x65, 0x79, 0x04];
-    let handle = parse_nondet(&scalars).unwrap();
-    unsafe { tav_cbor_free(handle) };
+fn parsing_accepts_compound_map_keys() {
+    for document in [
+        &[0xa1, 0x81, 0x01, 0x02][..],
+        &[0x81, 0xa1, 0x81, 0x01, 0x02],
+        &[0xd2, 0xa1, 0x81, 0x01, 0x02],
+        &[0xa1, 0xa1, 0x01, 0x02, 0x03],
+        &[0xa1, 0xd2, 0x01, 0x02],
+    ] {
+        for det in [false, true] {
+            let handle = decode(document, MAX_DEPTH_LIMIT, det).unwrap();
+            assert_eq!(encode_det(handle).unwrap(), document);
+            unsafe { tav_cbor_free(handle) };
+        }
+    }
 }
 
 #[test]
-fn containers_are_not_usable_as_map_keys() {
+fn an_absent_container_key_is_not_found() {
     let document = [0xa1, 0x01, 0x02];
     let handle = parse_nondet(&document).unwrap();
     let mut out: *mut TavCborHandle = ptr::null_mut();
@@ -695,7 +698,7 @@ fn containers_are_not_usable_as_map_keys() {
     let container_key = unsafe { tav_cbor_make_array(ptr::null_mut(), 0) };
     assert_eq!(
         unsafe { tav_cbor_map_at(handle, container_key, &mut out) },
-        STATUS_TYPE_MISMATCH
+        STATUS_KEY_NOT_FOUND
     );
     unsafe { tav_cbor_free(container_key) };
     unsafe { tav_cbor_free(handle) };

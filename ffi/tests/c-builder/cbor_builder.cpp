@@ -629,29 +629,29 @@ TEST_CASE("cbor handle: every key a map holds can be looked up")
     }
 }
 
-TEST_CASE("cbor handle: a container cannot be a map key")
+TEST_CASE("cbor handle: compound map keys can be built and looked up")
 {
     std::vector<MapItem> entries;
     entries.emplace_back(make_array({}), make_signed(7));
-    CHECK_THROWS_AS(make_map(std::move(entries)), EncodeError);
+    const Value map = make_map(std::move(entries));
+    CHECK(map.map_at(make_array({})).as_signed() == 7);
 
     std::vector<MapItem> tagged;
     tagged.emplace_back(make_tagged(18, make_signed(1)), make_signed(7));
-    CHECK_THROWS_AS(make_map(std::move(tagged)), EncodeError);
+    const Value tagged_map = make_map(std::move(tagged));
+    CHECK(tagged_map.map_at(make_tagged(18, make_signed(1))).as_signed() == 7);
 
-    // Parsing applies the same rule, so no map reachable through this API
-    // holds a key map_at would refuse.
-    CHECK_THROWS_AS(
-      (void)nondet_parse(std::vector<uint8_t>{0xa1, 0x81, 0x01, 0x02}),
-      DecodeError); // {[1]: 2}
-    CHECK_THROWS_AS(
-      (void)det_parse(std::vector<uint8_t>{0xa1, 0x81, 0x01, 0x02}),
-      DecodeError);
+    const std::vector<uint8_t> encoded{0xa1, 0x81, 0x01, 0x02};
+    const Value parsed = nondet_parse(encoded);
+    const Value key = parsed.map_key_at(0);
+    CHECK(parsed.map_at(key).as_signed() == 2);
+    CHECK(det_parse(encoded).map_at(key).as_signed() == 2);
 
-    // Nested below the root, so the whole tree is checked.
-    CHECK_THROWS_AS(
-      (void)nondet_parse(std::vector<uint8_t>{0x81, 0xa1, 0x81, 0x01, 0x02}),
-      DecodeError); // [{[1]: 2}]
+    const std::vector<uint8_t> map_key{0xa1, 0xa2, 1, 2, 3, 4, 7};
+    const std::vector<uint8_t> reordered{0xa2, 3, 4, 1, 2};
+    const Value root = nondet_parse(map_key);
+    const Value reordered_key = nondet_parse(reordered);
+    CHECK(root.map_at(reordered_key).as_signed() == 7);
 }
 
 TEST_CASE("cbor handle: duplicate map keys cannot be serialized")

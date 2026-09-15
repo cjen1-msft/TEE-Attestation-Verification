@@ -29,9 +29,8 @@ extern "C" {
  *   A null output slot is rejected before consuming inputs.
  * - Navigation returns a new owning handle projected into the same immutable
  *   document. It remains valid after the source handle is freed.
- * - TavCborValue pointers from cose.h may be explicitly cast to this handle
- *   type and vice versa without copying or acquiring ownership. Do not cast
- *   pointer-to-pointer output slots. Free each owned handle exactly once.
+ * - CBOR, COSE, and CACI use TavCborHandle directly. Free each owned handle
+ *   exactly once.
  *
  * Payloads:
  * - Scalars are copied. tav_cbor_make_bytes and tav_cbor_make_string borrow:
@@ -155,7 +154,6 @@ TavError* tav_cbor_det_parse(
   TavCborHandle** out_value);
 
 /* Inspection. Returns TAV_CBOR_HANDLE_KIND_INVALID for NULL, otherwise the kind.
- * These values differ from the legacy TavCborKind in cose.h.
  */
 int tav_cbor_kind(const TavCborHandle* value);
 TavError* tav_cbor_as_signed(const TavCborHandle* value, int64_t* out);

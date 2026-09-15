@@ -12,8 +12,12 @@ C++ consumers can use the RAII wrappers instead of the raw C ABI: `errors.hpp`
 The C++ consumer executable runs with AddressSanitizer enabled for both shared
 and static linking. The Rust library is not sanitizer-instrumented.
 
-The CBOR wrapper in `cbor.hpp` includes `errors.hpp` and `byte_buffer.hpp` but retains its
-`tav::cbor::DecodeError` and `tav::cbor::EncodeError` exceptions and error codes.
+The CBOR wrapper in `cbor.hpp` uses the shared `tav::Exception` and
+`tav::ErrorCode` from `errors.hpp`. Catch `tav::Exception` and inspect `code()`.
+Errors retain the native C ABI code and message, including `CBOR_ENCODE_FAILED`
+for invalid builder inputs. The former CBOR-specific exception classes and
+`tav::cbor::Error` enum are removed. `rethrow_with_msg` prefixes the message
+of any `tav::Exception` and preserves its code.
 Serialization returns an owned `std::vector<uint8_t>`. See
 `ffi/tests/c-builder/` for CBOR examples and a CMake setup.
 
@@ -41,8 +45,8 @@ for a worked CMake setup, including static linking.
 
 `tav/cbor.h` exposes builders, deterministic and non-deterministic parsing,
 serialization, copies, and navigation through opaque `TavCborHandle*` handles.
-`tav/cbor.hpp` provides the C++ RAII wrapper with its existing signatures,
-exception types, and `Error` and `Kind` values.
+`tav/cbor.hpp` provides the C++ RAII wrapper. Failures use the shared
+`tav::Exception` and `tav::ErrorCode`.
 
 The generic API borrows input byte and text buffers. Keep each buffer alive
 and unmodified while any derived handle is in use, including projected
@@ -75,51 +79,33 @@ tav_byte_buffer_free(encoded);
 tav_cbor_free(value);
 ```
 
-## Migrate CBOR calls from cose.h
+## COSE and CACI handles
 
-The `tav_cbor_value_*` functions in `tav/cose.h` are deprecated. Their symbols,
-signatures, error codes, messages, and output-reset rules remain compatible.
-COSE validation and verification are **not deprecated**. Neither are the COSE
-constants or the `TavCborValue` type used by those functions. C# and WASM APIs
-are unchanged.
+CBOR, COSE validation and verification, and CACI use `TavCborHandle*`.
+`tav/cose.h` declares only COSE functions and constants. All native CBOR
+operations are declared in `tav/cbor.h`.
 
-Include `tav/cbor.h` and use `TavCborHandle*` for new CBOR code. Replace calls
-according to this table. All names below have the `tav_cbor_` prefix.
+Parsing borrows byte and text payloads. To detach a parsed value from its input,
+call `tav_cbor_deep_copy` while the input remains alive, then free the borrowed
+handle. COSE validation returns an independently owned view of the same
+document. Borrowed input must outlive that view too. CACI verification instead
+returns a document with owned payloads.
 
-| Legacy suffix | Replacement suffix |
-| --- | --- |
-| `value_from_bytes` | `nondet_parse`, with depth 64 |
-| `value_to_bytes` | `det_serialize`, with depth 64 |
-| `value_kind` | `kind`, with `TAV_CBOR_HANDLE_KIND_*` constants |
-| `value_int`, `value_simple`, `value_bytes`, `value_text` | `as_signed`, `as_simple`, `as_bytes`, `as_string` |
-| `value_tag`, `value_len` | `as_tag`, `size` |
-| `value_tagged_payload` | `as_tag`, then `tag_at` |
-| `value_array_at`, `value_map_at` | `array_at`, `map_at` |
-| `value_map_at_int`, `value_map_at_text` | `make_signed` or `make_string`, then `map_at`; free the key afterward |
-| `value_map_has_key`, `value_map_has_int_key`, `value_map_has_text_key` | `map_at`; only `TAV_ERROR_CBOR_KEY_NOT_FOUND` means absent; free any result and error |
-| `value_map_entry_at` | `map_key_at`, then `map_value_at`; free the key if the second call fails |
-| `value_map_key_at`, `value_map_value_at` | `map_key_at`, `map_value_at` |
-| `value_free` | `free` |
+Use `tav_cbor_make_signed` or `tav_cbor_make_string` to create a map key, then
+call `tav_cbor_map_at` and free the key. Only `TAV_ERROR_CBOR_KEY_NOT_FOUND`
+means the key is absent. Other failures must not be treated as absence.
+Map keys may themselves be arrays or maps. To read both sides of an entry,
+call `tav_cbor_map_key_at` and `tav_cbor_map_value_at`; release the key if the
+second call fails.
 
-Legacy parsing copies payloads. Generic parsing borrows them. Keep the input
-alive and unchanged until all derived handles are freed. If you need an owned
-tree, call `tav_cbor_deep_copy` on the parsed handle before releasing the input,
-then free the borrowed handle. Navigation shares the document without copying
-payloads. Map lookup supports arbitrary CBOR keys, including arrays and maps.
+Readers use `TAV_ERROR_CBOR_*` codes and leave scalar and borrowed outputs
+unchanged on failure. Owned output slots are reset before work.
+Free each owned handle exactly once with `tav_cbor_free`.
 
-Do not reuse legacy kind constants with `tav_cbor_kind`: their values differ.
-Generic readers use `TAV_ERROR_CBOR_*` codes and leave scalar and borrowed
-outputs unchanged on failure. Legacy readers clear those outputs. Both APIs
-clear owned output slots before work. Keep depth 64 to preserve the legacy
-parse and serialize limit; the generic API permits up to `TAV_CBOR_MAX_DEPTH`.
-
-The opaque handle types have the same representation. Cast a handle pointer
-explicitly when passing a generic value to COSE validation or verification,
-or when reading a returned COSE or CACI handle with the generic API. This does
-not copy data or create another ownership reference. Never cast a
-pointer-to-pointer output slot. Use a variable of the declared output type,
-then cast its value. Free each owned handle exactly once with `tav_cbor_free`.
-Borrowed generic input must also outlive any validated COSE handle.
+C# uses this native API while retaining its public methods, kind values,
+owned-input behavior, and 64-level depth limit. Its CBOR errors use the generic
+codes described in the [C# binding documentation](../../csharp/README.md).
+The independent WASM API remains unchanged.
 
 For a complete example, see
 [`print_uvm_endorsement`](../../../demos/caci-c-ffi/demo.c), which reads a CACI
@@ -156,7 +142,7 @@ tav_verify_snp_attestation(report_bytes, report_len, ark_pem, ark_pem_len,
                             ask_pem, ask_pem_len, vcek_pem, vcek_pem_len,
                             &attestation);
 
-TavCborValue *uvm = NULL;
+TavCborHandle *uvm = NULL;
 tav_verify_caci_uvm_endorsement(uvm_bytes, uvm_len, trusted_didx509,
                                  trusted_didx509_len, &uvm);
 
@@ -168,7 +154,7 @@ TavError *error = tav_verify_caci_attestation(
     uvm, uvm_feed, uvm_feed_len, minimum_svn,
     &report_data);
 
-tav_cbor_value_free(uvm);
+tav_cbor_free(uvm);
 tav_snp_attestation_report_free(attestation);
 ```
 

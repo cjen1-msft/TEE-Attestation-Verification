@@ -19,8 +19,7 @@
 //   views returned by as_bytes and as_string must not outlive their payload
 //   storage.
 //
-// Failures throw CborError: DecodeError from parsing and from reads that do
-// not match the value, EncodeError from construction and serialization.
+// Failures throw tav::Exception with the C ABI's tav::ErrorCode and message.
 //
 // Nesting:
 // - MAX_DEPTH limits parsing and serialization, not builders. Callers must
@@ -34,7 +33,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -44,17 +42,6 @@ namespace tav::cbor
 {
 /// Ceiling on nesting depth for parsing and serialization.
 constexpr size_t MAX_DEPTH = TAV_CBOR_MAX_DEPTH;
-
-/// Stable C++ error classifications, independent of TavErrorCode values.
-enum class Error : int
-{
-    OK = 0,
-    DECODE_FAILED = 1,
-    KEY_NOT_FOUND = 2,
-    OUT_OF_BOUND = 3,
-    TYPE_MISMATCH = 4,
-    ENCODE_FAILED = 5,
-};
 
 /// Value kinds. INVALID is reported for an empty Value.
 enum class Kind : int
@@ -78,37 +65,6 @@ enum SimpleValue : uint8_t
     Undefined = 23,
 };
 
-class CborError : public std::runtime_error
-{
-public:
-    CborError(Error err, const std::string& what) :
-      std::runtime_error(what),
-      error_(err)
-    {}
-
-    [[nodiscard]] Error error_code() const
-    {
-        return error_;
-    }
-
-private:
-    Error error_;
-};
-
-/// Thrown by parsing, and by reads that do not match the value.
-class DecodeError : public CborError
-{
-public:
-    using CborError::CborError;
-};
-
-/// Thrown by construction and serialization.
-class EncodeError : public CborError
-{
-public:
-    using CborError::CborError;
-};
-
 inline bool simple_to_boolean(uint8_t value)
 {
     switch (value)
@@ -118,8 +74,8 @@ inline bool simple_to_boolean(uint8_t value)
         case SimpleValue::True:
             return true;
         default:
-            throw DecodeError(
-              Error::TYPE_MISMATCH, "Simple value cannot be matched to boolean");
+            throw tav::Exception(
+              tav::ErrorCode::CBOR_TYPE_MISMATCH, "Simple value cannot be matched to boolean");
     }
 }
 
@@ -182,14 +138,14 @@ public:
     [[nodiscard]] int64_t as_signed() const
     {
         int64_t out = 0;
-        check(tav_cbor_as_signed(handle_, &out), "as_signed");
+        tav::check(tav_cbor_as_signed(handle_, &out));
         return out;
     }
 
     [[nodiscard]] uint8_t as_simple() const
     {
         uint8_t out = 0;
-        check(tav_cbor_as_simple(handle_, &out), "as_simple");
+        tav::check(tav_cbor_as_simple(handle_, &out));
         return out;
     }
 
@@ -198,7 +154,7 @@ public:
     {
         const uint8_t* data = nullptr;
         size_t len = 0;
-        check(tav_cbor_as_bytes(handle_, &data, &len), "as_bytes");
+        tav::check(tav_cbor_as_bytes(handle_, &data, &len));
         return {data, len};
     }
 
@@ -207,14 +163,14 @@ public:
     {
         const char* data = nullptr;
         size_t len = 0;
-        check(tav_cbor_as_string(handle_, &data, &len), "as_string");
+        tav::check(tav_cbor_as_string(handle_, &data, &len));
         return {data, len};
     }
 
     [[nodiscard]] uint64_t as_tag() const
     {
         uint64_t out = 0;
-        check(tav_cbor_as_tag(handle_, &out), "as_tag");
+        tav::check(tav_cbor_as_tag(handle_, &out));
         return out;
     }
 
@@ -222,42 +178,42 @@ public:
     [[nodiscard]] size_t size() const
     {
         size_t out = 0;
-        check(tav_cbor_size(handle_, &out), "size");
+        tav::check(tav_cbor_size(handle_, &out));
         return out;
     }
 
     [[nodiscard]] Value array_at(size_t index) const
     {
         TavCborHandle* out = nullptr;
-        check(tav_cbor_array_at(handle_, index, &out), "array_at");
+        tav::check(tav_cbor_array_at(handle_, index, &out));
         return adopt(out, "array_at");
     }
 
     [[nodiscard]] Value map_at(const Value& key) const
     {
         TavCborHandle* out = nullptr;
-        check(tav_cbor_map_at(handle_, key.handle_, &out), "map_at");
+        tav::check(tav_cbor_map_at(handle_, key.handle_, &out));
         return adopt(out, "map_at");
     }
 
     [[nodiscard]] Value tag_at(uint64_t tag) const
     {
         TavCborHandle* out = nullptr;
-        check(tav_cbor_tag_at(handle_, tag, &out), "tag_at");
+        tav::check(tav_cbor_tag_at(handle_, tag, &out));
         return adopt(out, "tag_at");
     }
 
     [[nodiscard]] Value map_key_at(size_t index) const
     {
         TavCborHandle* out = nullptr;
-        check(tav_cbor_map_key_at(handle_, index, &out), "map_key_at");
+        tav::check(tav_cbor_map_key_at(handle_, index, &out));
         return adopt(out, "map_key_at");
     }
 
     [[nodiscard]] Value map_value_at(size_t index) const
     {
         TavCborHandle* out = nullptr;
-        check(tav_cbor_map_value_at(handle_, index, &out), "map_value_at");
+        tav::check(tav_cbor_map_value_at(handle_, index, &out));
         return adopt(out, "map_value_at");
     }
 
@@ -336,45 +292,16 @@ private:
     {
         if (handle == nullptr)
         {
-            throw EncodeError(Error::ENCODE_FAILED, what);
+            throw tav::Exception(tav::ErrorCode::CBOR_ENCODE_FAILED, what);
         }
         return Value(handle);
-    }
-
-    template<class Exception>
-    static void check_error(
-      TavError* error, const char* what, Error fallback, bool use_message = false)
-    {
-        try
-        {
-            tav::check(error);
-        }
-        catch (const tav::Exception& failure)
-        {
-            Error code = fallback;
-            switch (static_cast<int>(failure.code()))
-            {
-                case TAV_ERROR_CBOR_DECODE_FAILED: code = Error::DECODE_FAILED; break;
-                case TAV_ERROR_CBOR_KEY_NOT_FOUND: code = Error::KEY_NOT_FOUND; break;
-                case TAV_ERROR_CBOR_OUT_OF_BOUND: code = Error::OUT_OF_BOUND; break;
-                case TAV_ERROR_CBOR_TYPE_MISMATCH: code = Error::TYPE_MISMATCH; break;
-                case TAV_ERROR_CBOR_ENCODE_FAILED: code = Error::ENCODE_FAILED; break;
-                default: break;
-            }
-            throw Exception(code, use_message ? failure.what() : what);
-        }
-    }
-
-    static void check(TavError* error, const char* what)
-    {
-        check_error<DecodeError>(error, what, Error::TYPE_MISMATCH);
     }
 
     template<class Builder>
     static Value construct(Builder builder, const char* what)
     {
         TavCborHandle* out = nullptr;
-        check_error<EncodeError>(builder(&out), what, Error::ENCODE_FAILED);
+        tav::check(builder(&out));
         return adopt(out, what);
     }
 
@@ -386,9 +313,7 @@ private:
     static Value parse_with(Parser parser, std::span<const uint8_t> raw, size_t max_depth)
     {
         TavCborHandle* out = nullptr;
-        check_error<DecodeError>(
-          parser(raw.data(), raw.size(), max_depth, &out),
-          "Parsing failed", Error::DECODE_FAILED, true);
+        tav::check(parser(raw.data(), raw.size(), max_depth, &out));
         return Value::adopt(out, "parse");
     }
 
@@ -404,9 +329,7 @@ private:
         TavByteBuffer* out = nullptr;
         TavError* error = encoder(handle_, max_depth, &out);
         const auto buffer = tav::ByteBuffer::adopt(out);
-        check_error<EncodeError>(
-          error,
-          "Serialization failed", Error::ENCODE_FAILED, true);
+        tav::check(error);
         const auto bytes = buffer.bytes();
         return {bytes.begin(), bytes.end()};
     }
@@ -456,7 +379,7 @@ inline Value make_array(std::vector<Value>&& items)
 }
 
 /// Keys may be any supported CBOR value and must be unique. Duplicate keys are
-/// unsupported: construction may succeed, but serialization throws EncodeError.
+/// unsupported: construction may succeed, but serialization throws tav::Exception.
 inline Value make_map(std::vector<MapItem>&& entries)
 {
     const size_t pair_count = entries.size();
@@ -518,21 +441,21 @@ inline Value deep_copy(const Value& value)
       [&](auto out) { return tav_cbor_deep_copy(value.handle_, out); }, "deep_copy");
 }
 
-/// Run f, prefixing msg onto any DecodeError it raises.
+/// Run f, prefixing msg onto any tav::Exception while preserving its code.
 decltype(auto) rethrow_with_msg(auto&& f, std::string_view msg = {})
 {
     try
     {
         return f();
     }
-    catch (const DecodeError& err)
+    catch (const tav::Exception& err)
     {
         if (msg.empty())
         {
             throw;
         }
-        throw DecodeError(
-          err.error_code(), std::string(msg) + ": " + err.what());
+        throw tav::Exception(
+          err.code(), std::string(msg) + ": " + err.what());
     }
 }
 }

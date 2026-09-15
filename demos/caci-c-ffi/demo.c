@@ -405,8 +405,8 @@ static void print_borrowed_report_field(
     print_hex_lines(data, len, 4);
 }
 
-static void print_uvm_endorsement(const TavCborValue *uvm_endorsement) {
-    TavCborValue *sign1 = NULL;
+static void print_uvm_endorsement(const TavCborHandle *uvm_endorsement) {
+    TavCborHandle *sign1 = NULL;
     TavCborHandle *protected_value = NULL;
     const uint8_t *protected_bytes = NULL;
     size_t protected_len = 0;
@@ -451,7 +451,7 @@ static void print_uvm_endorsement(const TavCborValue *uvm_endorsement) {
     tav_cbor_free(content_type);
     tav_cbor_free(protected_header);
     tav_cbor_free(protected_value);
-    tav_cbor_free((TavCborHandle *)sign1);
+    tav_cbor_free(sign1);
 }
 
 static uint64_t parse_u64(const char *text, const char *name) {
@@ -517,7 +517,7 @@ int main(int argc, char **argv) {
 
     int exit_code = 0;
     TavSnpAttestationReport *attestation = NULL;
-    TavCborValue *uvm_endorsement = NULL;
+    TavCborHandle *uvm_endorsement = NULL;
     TavByteBuffer *report_data = NULL;
 
     exit_code = consume_snp_error(
@@ -586,7 +586,7 @@ int main(int argc, char **argv) {
 
 cleanup:
     tav_byte_buffer_free(report_data);
-    tav_cbor_free((TavCborHandle *)uvm_endorsement);
+    tav_cbor_free(uvm_endorsement);
     tav_snp_attestation_report_free(attestation);
     free_string(&ark);
     free_string(&ask);

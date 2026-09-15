@@ -258,11 +258,32 @@ static void nulls_and_rejected_batches(void)
     tav_cbor_free(input);
 }
 
+static void cose_interoperability(void)
+{
+    const uint8_t input[] = {0x84, 0x43, 0xa1, 0x01, 0x26, 0xa0, 0x40, 0x40};
+    TavCborHandle* root = NULL;
+    TavCborHandle* sign1 = NULL;
+    TavCborHandle* payload = NULL;
+    size_t size = 0;
+    expect(tav_cbor_nondet_parse(input, sizeof(input), 64, &root), TAV_ERROR_OK);
+    expect(tav_validate_cose_sign1(root, &sign1), TAV_ERROR_OK);
+    tav_cbor_free(root);
+    expect(tav_cbor_size(sign1, &size), TAV_ERROR_OK);
+    CHECK(size == 4);
+    expect(tav_cbor_array_at(sign1, 2, &payload), TAV_ERROR_OK);
+    tav_cbor_free(sign1);
+    const uint8_t* data = NULL;
+    expect(tav_cbor_as_bytes(payload, &data, &size), TAV_ERROR_OK);
+    CHECK(size == 0);
+    tav_cbor_free(payload);
+}
+
 int main(void)
 {
     scalars_and_copies();
     containers_and_navigation();
     parsing_and_serialization();
     nulls_and_rejected_batches();
+    cose_interoperability();
     return 0;
 }

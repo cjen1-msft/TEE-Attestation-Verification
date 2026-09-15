@@ -80,9 +80,5 @@ if(NOT TAV_LINK_STATIC)
 endif()
 
 enable_testing()
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_test(NAME cbor-deprecation
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/check_deprecation.py"
-        --cc "${CMAKE_C_COMPILER}" --cxx "${CMAKE_CXX_COMPILER}")
 add_test(NAME c-consumer COMMAND tav-c-consumer-tests)
 add_test(NAME cbor-c COMMAND tav-cbor-c-tests)

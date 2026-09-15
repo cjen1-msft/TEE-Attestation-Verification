@@ -8,7 +8,7 @@ public sealed class PublicApiTests
     [Fact]
     public void ErrorCodeValuesMatchNativeAbi()
     {
-        AssertManagedEnumMatchesHeader<ErrorCode>(
+        AssertManagedEnumMatchesHeader(typeof(ErrorCode),
             "ffi/include/tav/errors.h",
             "TavErrorCode",
             [
@@ -41,26 +41,39 @@ public sealed class PublicApiTests
     }
 
     [Fact]
-    public void CborKindValuesMatchNativeAbi()
+    public void CborKindValuesRemainStable()
     {
-        AssertManagedEnumMatchesHeader<CborKind>(
-            "ffi/include/tav/cose.h",
-            "TavCborKind",
+        CborKind[] kinds =
+            [CborKind.Int, CborKind.Simple, CborKind.Bytes, CborKind.Text,
+             CborKind.Array, CborKind.Map, CborKind.Tagged];
+        Assert.Equal(kinds, Enum.GetValues<CborKind>());
+        Assert.Equal(Enumerable.Range(1, 7), kinds.Select(kind => (int)kind));
+    }
+
+    [Fact]
+    public void NativeCborKindValuesMatchNativeAbi()
+    {
+        Type nativeKind = typeof(CborValue).Assembly.GetType(
+            "TeeAttestationVerification.NativeCborKind", throwOnError: true)!;
+        AssertManagedEnumMatchesHeader(nativeKind,
+            "ffi/include/tav/cbor.h",
+            "TavCborHandleKind",
             [
-                ("TAV_CBOR_KIND_INT", nameof(CborKind.Int)),
-                ("TAV_CBOR_KIND_SIMPLE", nameof(CborKind.Simple)),
-                ("TAV_CBOR_KIND_BYTES", nameof(CborKind.Bytes)),
-                ("TAV_CBOR_KIND_TEXT", nameof(CborKind.Text)),
-                ("TAV_CBOR_KIND_ARRAY", nameof(CborKind.Array)),
-                ("TAV_CBOR_KIND_MAP", nameof(CborKind.Map)),
-                ("TAV_CBOR_KIND_TAGGED", nameof(CborKind.Tagged)),
+                ("TAV_CBOR_HANDLE_KIND_INVALID", "Invalid"),
+                ("TAV_CBOR_HANDLE_KIND_SIGNED", "Signed"),
+                ("TAV_CBOR_HANDLE_KIND_BYTES", "Bytes"),
+                ("TAV_CBOR_HANDLE_KIND_STRING", "String"),
+                ("TAV_CBOR_HANDLE_KIND_ARRAY", "Array"),
+                ("TAV_CBOR_HANDLE_KIND_MAP", "Map"),
+                ("TAV_CBOR_HANDLE_KIND_TAGGED", "Tagged"),
+                ("TAV_CBOR_HANDLE_KIND_SIMPLE", "Simple"),
             ]);
     }
 
     [Fact]
     public void CoseAlgorithmValuesMatchNativeAbi()
     {
-        AssertManagedEnumMatchesHeader<CoseAlgorithm>(
+        AssertManagedEnumMatchesHeader(typeof(CoseAlgorithm),
             "ffi/include/tav/cose.h",
             "TavCoseAlgorithm",
             [
@@ -73,19 +86,19 @@ public sealed class PublicApiTests
             ]);
     }
 
-    private static void AssertManagedEnumMatchesHeader<TEnum>(
+    private static void AssertManagedEnumMatchesHeader(
+        Type enumType,
         string headerPath,
         string cType,
         IReadOnlyList<(string CName, string ManagedName)> mappings)
-        where TEnum : struct, Enum
     {
-        Assert.Equal(typeof(int), Enum.GetUnderlyingType(typeof(TEnum)));
+        Assert.Equal(typeof(int), Enum.GetUnderlyingType(enumType));
 
         IReadOnlyDictionary<string, long> cValues = ParseCEnum(headerPath, cType);
-        Dictionary<string, long> managedValues = Enum.GetNames<TEnum>()
+        Dictionary<string, long> managedValues = Enum.GetNames(enumType)
             .ToDictionary(
                 name => name,
-                name => Convert.ToInt64(Enum.Parse<TEnum>(name)),
+                name => Convert.ToInt64(Enum.Parse(enumType, name)),
                 StringComparer.Ordinal);
 
         Assert.Equal(
@@ -106,10 +119,10 @@ public sealed class PublicApiTests
         string cType)
     {
         string header = FixtureData.ReadText(relativePath);
-        string declaration = $"typedef enum {cType} {{";
-        int bodyStart = header.IndexOf(declaration, StringComparison.Ordinal);
-        Assert.True(bodyStart >= 0, $"{relativePath} does not declare {cType}");
-        bodyStart += declaration.Length;
+        var declaration = System.Text.RegularExpressions.Regex.Match(
+            header, $@"\btypedef\s+enum\s+{System.Text.RegularExpressions.Regex.Escape(cType)}\s*\{{");
+        Assert.True(declaration.Success, $"{relativePath} does not declare {cType}");
+        int bodyStart = declaration.Index + declaration.Length;
         int bodyEnd = header.IndexOf('}', bodyStart);
         Assert.True(bodyEnd >= 0, $"{relativePath} does not terminate {cType}");
 

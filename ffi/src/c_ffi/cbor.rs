@@ -38,7 +38,6 @@ use cbor::{CborValue, Det, Mode, Nondet};
 
 use crate::cbor_view::{CborView, NativeCborValue};
 
-use super::cbor_read;
 use super::utils::{owned_out_ptr, TavByteBuffer};
 use crate::{into_result, TavError, TavErrorCode};
 
@@ -426,7 +425,9 @@ unsafe fn serialize<M: Mode>(
     unsafe { owned_out_ptr(out, "out") }?;
     let handle = unsafe { as_handle(value) }
         .ok_or_else(|| TavError::new(TavErrorCode::CborEncodeFailed, "Null CBOR handle"))?;
-    let bytes = cbor_read::serialize::<M>(handle.as_native(), max_depth)
+    let bytes = handle
+        .as_native()
+        .to_bytes_with_depth::<M>(capped(max_depth))
         .map_err(|e| TavError::new(TavErrorCode::CborEncodeFailed, e))?;
     unsafe { *out = Box::into_raw(TavByteBuffer::from_bytes(bytes)) };
     Ok(())
@@ -470,7 +471,7 @@ unsafe fn parse<M: Mode>(
     let bytes = unsafe { borrowed(data, len) }.ok_or_else(|| {
         TavError::new(TavErrorCode::CborDecodeFailed, "Invalid CBOR input buffer")
     })?;
-    let value = cbor_read::parse::<M>(bytes, max_depth)
+    let value = CborValue::parse_with_depth::<M>(bytes, capped(max_depth))
         .map_err(|e| TavError::new(TavErrorCode::CborDecodeFailed, e))?;
     unsafe { *out = into_handle(value) };
     Ok(())
@@ -511,11 +512,11 @@ pub unsafe extern "C" fn tav_cbor_det_parse(
 
 unsafe fn read<'a, T>(
     value: *const TavCborHandle,
-    reader: impl FnOnce(&'a NativeCborValue) -> Result<T, TavError>,
+    reader: impl FnOnce(&'a NativeCborValue) -> Option<T>,
 ) -> Result<T, TavError> {
     let handle =
         unsafe { as_handle(value) }.ok_or_else(|| cbor_error(TavErrorCode::CborTypeMismatch))?;
-    reader(handle.as_native()).map_err(|_| cbor_error(TavErrorCode::CborTypeMismatch))
+    reader(handle.as_native()).ok_or_else(|| cbor_error(TavErrorCode::CborTypeMismatch))
 }
 
 /// Report the kind of `value`, or `KIND_INVALID` for a null handle.
@@ -544,7 +545,12 @@ pub unsafe extern "C" fn tav_cbor_as_signed(
         if out.is_null() {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         }
-        unsafe { *out = read(value, cbor_read::int)? };
+        unsafe {
+            *out = read(value, |value| match value {
+                CborValue::Int(value) => Some(*value),
+                _ => None,
+            })?;
+        }
         Ok(())
     })
 }
@@ -562,7 +568,12 @@ pub unsafe extern "C" fn tav_cbor_as_simple(
         if out.is_null() {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         }
-        unsafe { *out = read(value, cbor_read::simple)? };
+        unsafe {
+            *out = read(value, |value| match value {
+                CborValue::Simple(value) => Some(*value),
+                _ => None,
+            })?;
+        }
         Ok(())
     })
 }
@@ -581,7 +592,12 @@ pub unsafe extern "C" fn tav_cbor_as_bytes(
         if out.is_null() || out_len.is_null() {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         }
-        let payload = unsafe { read(value, |value| cbor_read::bytes(value, "value")) }?;
+        let payload = unsafe {
+            read(value, |value| match value {
+                CborValue::ByteString(value) => Some(value.as_ref()),
+                _ => None,
+            })
+        }?;
         unsafe {
             *out = payload.as_ptr();
             *out_len = payload.len();
@@ -604,7 +620,12 @@ pub unsafe extern "C" fn tav_cbor_as_string(
         if out.is_null() || out_len.is_null() {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         }
-        let payload = unsafe { read(value, cbor_read::text) }?;
+        let payload = unsafe {
+            read(value, |value| match value {
+                CborValue::TextString(value) => Some(value.as_ref()),
+                _ => None,
+            })
+        }?;
         unsafe {
             *out = payload.as_ptr().cast();
             *out_len = payload.len();
@@ -626,7 +647,12 @@ pub unsafe extern "C" fn tav_cbor_as_tag(
         if out.is_null() {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         }
-        let (tag, _) = unsafe { read(value, cbor_read::tagged) }?;
+        let tag = unsafe {
+            read(value, |value| match value {
+                CborValue::Tagged { tag, .. } => Some(*tag),
+                _ => None,
+            })
+        }?;
         unsafe { *out = tag };
         Ok(())
     })
@@ -645,13 +671,7 @@ pub unsafe extern "C" fn tav_cbor_size(
         if out.is_null() {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         }
-        let count = unsafe {
-            read(value, |value| {
-                value
-                    .len()
-                    .map_err(|error| TavError::new(TavErrorCode::CoseCbor, error))
-            })
-        }?;
+        let count = unsafe { read(value, |value| value.len().ok()) }?;
         unsafe { *out = count };
         Ok(())
     })
@@ -761,14 +781,13 @@ pub unsafe extern "C" fn tav_cbor_tag_at(
         let Some(handle) = (unsafe { as_handle(value) }) else {
             return Err(cbor_error(TavErrorCode::CborTypeMismatch));
         };
-        match project_handle(handle, |value| {
-            let (actual, payload) =
-                cbor_read::tagged(value).map_err(|_| cbor_error(TavErrorCode::CborTypeMismatch))?;
-            if actual == tag {
-                Ok([payload])
-            } else {
-                Err(cbor_error(TavErrorCode::CborKeyNotFound))
-            }
+        match project_handle(handle, |value| match value {
+            CborValue::Tagged {
+                tag: actual,
+                payload,
+            } if *actual == tag => Ok([payload.as_ref()]),
+            CborValue::Tagged { .. } => Err(cbor_error(TavErrorCode::CborKeyNotFound)),
+            _ => Err(cbor_error(TavErrorCode::CborTypeMismatch)),
         }) {
             Ok(projected) => {
                 unsafe { *out = projected };
@@ -821,9 +840,10 @@ unsafe fn cbor_map_entry_at(
         return Err(cbor_error(TavErrorCode::CborTypeMismatch));
     };
     match project_handle(handle, |value| match value {
-        CborValue::Map(_) => cbor_read::map_entry(value, index)
+        CborValue::Map(entries) => entries
+            .get(index)
             .map(|(key, item)| [if want_key { key } else { item }])
-            .map_err(|_| cbor_error(TavErrorCode::CborOutOfBound)),
+            .ok_or_else(|| cbor_error(TavErrorCode::CborOutOfBound)),
         _ => Err(cbor_error(TavErrorCode::CborTypeMismatch)),
     }) {
         Ok(projected) => {

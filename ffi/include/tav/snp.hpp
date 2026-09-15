@@ -1,9 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// RAII wrapper over the SEV-SNP attestation C ABI in <tav/snp.h>. This is the
-// supported interface; the C header is retained for consumers that need the
-// raw ABI.
+// Header-only RAII layer over the public SEV-SNP attestation C ABI in <tav/snp.h>.
 //
 // Handle ownership:
 // - Report is independently owned and releases its handle on destruction.
@@ -58,6 +56,15 @@ public:
     [[nodiscard]] bool empty() const noexcept
     {
         return handle_ == nullptr;
+    }
+
+    /// Borrows the handle for C ABI calls; ownership stays with the Report.
+    /// Do not free the pointer or use it after the owning Report releases it.
+    /// Throws ErrorCode::IS_NULL if empty. CACI verification requires a handle
+    /// from verify(), not from_unverified_bytes().
+    [[nodiscard]] const TavSnpAttestationReport* get() const
+    {
+        return handle();
     }
 
     /// Verify an SNP attestation report using caller-provided ARK, ASK, and

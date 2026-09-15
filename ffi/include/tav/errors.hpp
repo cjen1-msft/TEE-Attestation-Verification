@@ -1,13 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Exception wrapper over the shared C ABI error types in
-// <tav/errors.h>. This is the supported interface; the C header is retained
-// for consumers that need the raw ABI.
+// Header-only exception helpers over the public C ABI in <tav/errors.h>.
 //
-// Every public C ABI function documented as returning an owned TavError* on
-// failure is wrapped here to instead throw tav::Exception, carrying the
-// TavErrorCode and message from the failed TavError before freeing it.
+// check() consumes an owned TavError* returned by a C ABI call and throws
+// tav::Exception with its code and message, freeing the error first.
+// A null pointer indicates success and does not throw.
 
 #pragma once
 

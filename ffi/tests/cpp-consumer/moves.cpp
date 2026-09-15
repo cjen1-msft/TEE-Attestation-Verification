@@ -14,8 +14,8 @@
 
 namespace {
 
-template <typename Make, typename Read>
-void check_handle_moves(Make make, Read read) {
+template <typename Make, typename Read, typename HasValue>
+void check_handle_moves(Make make, Read read, HasValue has_value) {
     using T = decltype(make(1));
     static_assert(!std::is_copy_constructible_v<T>);
     static_assert(!std::is_copy_assignable_v<T>);
@@ -23,40 +23,40 @@ void check_handle_moves(Make make, Read read) {
     static_assert(std::is_nothrow_move_assignable_v<T>);
 
     auto source = make(1);
-    REQUIRE_FALSE(source.empty());
+    REQUIRE(has_value(source));
     auto& alias = source;
     CHECK(&(source = std::move(alias)) == &source);
-    REQUIRE_FALSE(source.empty());
+    REQUIRE(has_value(source));
     CHECK(read(source) == 1);
 
     auto moved = std::move(source);
-    CHECK(source.empty());
-    REQUIRE_FALSE(moved.empty());
+    CHECK_FALSE(has_value(source));
+    REQUIRE(has_value(moved));
     CHECK(read(moved) == 1);
 
     auto destination = make(2);
     CHECK(read(destination) == 2);
     CHECK(&(destination = std::move(moved)) == &destination);
-    CHECK(moved.empty());
-    REQUIRE_FALSE(destination.empty());
+    CHECK_FALSE(has_value(moved));
+    REQUIRE(has_value(destination));
     CHECK(read(destination) == 1);
 
     // Moving from an empty source clears an occupied destination.
     destination = std::move(source);
-    CHECK(source.empty());
-    CHECK(destination.empty());
+    CHECK_FALSE(has_value(source));
+    CHECK_FALSE(has_value(destination));
     auto empty = std::move(source);
-    CHECK(source.empty());
-    CHECK(empty.empty());
+    CHECK_FALSE(has_value(source));
+    CHECK_FALSE(has_value(empty));
     CHECK(&(source = std::move(alias)) == &source);
-    CHECK(source.empty());
+    CHECK_FALSE(has_value(source));
 
     {
         auto replacement = make(3);
         source = std::move(replacement);
-        CHECK(replacement.empty());
+        CHECK_FALSE(has_value(replacement));
     }
-    REQUIRE_FALSE(source.empty());
+    REQUIRE(has_value(source));
     CHECK(read(source) == 3);
 }
 
@@ -94,7 +94,8 @@ TEST_CASE("C++ moves: Report") {
             bytes[0] = version;
             return tav::snp::Report::from_unverified_bytes(bytes);
         },
-        [](const tav::snp::Report& report) { return report.version(); });
+        [](const tav::snp::Report& report) { return report.version(); },
+        [](const tav::snp::Report& report) { return !report.empty(); });
 }
 
 TEST_CASE("C++ moves: ByteBuffer") {
@@ -111,13 +112,24 @@ TEST_CASE("C++ moves: ByteBuffer") {
         [](const tav::ByteBuffer& buffer) {
             REQUIRE(buffer.bytes().size() == 1);
             return buffer.bytes()[0];
-        });
+        },
+        [](const tav::ByteBuffer& buffer) { return buffer.has_value(); });
 }
 
 TEST_CASE("C++ moves: CBOR Value") {
     check_handle_moves(
         [](int value) { return tav::cbor::make_signed(value); },
-        [](const tav::cbor::Value& value) { return value.as_signed(); });
+        [](const tav::cbor::Value& value) { return value.as_signed(); },
+        [](const tav::cbor::Value& value) { return !value.empty(); });
+}
+
+TEST_CASE("ByteBuffer: no handle has no value and exposes an empty span") {
+    const tav::ByteBuffer buffer;
+    CHECK_FALSE(buffer.has_value());
+    CHECK(buffer.bytes().empty());
+    const auto adopted = tav::ByteBuffer::adopt(nullptr);
+    CHECK_FALSE(adopted.has_value());
+    CHECK(adopted.bytes().empty());
 }
 
 TEST_CASE("C++ moves: Exception") {

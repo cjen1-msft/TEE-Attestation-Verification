@@ -41,10 +41,10 @@ public:
         tav_byte_buffer_free(handle_);
     }
 
-    /// True once the handle has been moved out.
-    [[nodiscard]] bool empty() const
+    /// True if a buffer is owned, even when it contains zero bytes.
+    [[nodiscard]] bool has_value() const noexcept
     {
-        return handle_ == nullptr;
+        return handle_ != nullptr;
     }
 
     [[nodiscard]] std::span<const uint8_t> bytes() const

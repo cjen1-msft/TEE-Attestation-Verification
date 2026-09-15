@@ -60,7 +60,7 @@ void check_empty_accessors(const tav::snp::Report& report) {
     };
     using R = tav::snp::Report;
     check_all(
-        &R::version, &R::guest_svn, &R::policy,
+        &R::get, &R::version, &R::guest_svn, &R::policy,
         &R::policy_abi_minor, &R::policy_abi_major, &R::policy_smt,
         &R::policy_migrate_ma, &R::policy_debug, &R::policy_single_socket,
         &R::policy_cxl_allow, &R::policy_mem_aes_256_xts, &R::policy_rapl_dis,
@@ -83,6 +83,8 @@ TEST_CASE("snp.hpp: every accessor exposes the golden Milan value") {
 
     tav::snp::Report report = tav::snp::Report::verify(in.report, in.ark, in.ask, in.vcek);
     CHECK_FALSE(report.empty());
+    REQUIRE(report.get() != nullptr);
+    CHECK(tav_snp_attestation_report_version(report.get()) == 3);
 
     // Golden values mirror ffi/tests/c-consumer/snp.cpp, which are in turn
     // taken from demos/c-ffi/test-data/milan-output.golden.txt.

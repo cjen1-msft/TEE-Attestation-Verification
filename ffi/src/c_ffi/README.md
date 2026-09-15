@@ -1,164 +1,155 @@
 # C ABI
 
-Native C ABI for CBOR, SNP, COSE, and CACI verification. Headers live under
-`ffi/include/tav/`; each header's usage summary documents its own surface in
-more detail (`cbor.h`, `snp.h`, `cose.h`, `caci.h`, `errors.h`, `byte_buffer.h`).
+Native C bindings for CBOR, SNP, COSE, and CACI verification.
 
-C++ consumers can use the RAII wrappers instead of the raw C ABI: `errors.hpp`
-(`tav::Exception`), `byte_buffer.hpp` (`tav::ByteBuffer`), and `snp.hpp`
-(`tav::snp::Report`). `utils.h` includes both C utility headers. See
-`ffi/tests/cpp-consumer/` for worked examples and
-`ffi/tests/cpp-consumer/CMakeLists.txt` for a CMake setup.
-The C++ consumer executable runs with AddressSanitizer enabled for both shared
-and static linking. The Rust library is not sanitizer-instrumented.
+## Build and link
 
-The CBOR wrapper in `cbor.hpp` uses the shared `tav::Exception` and
-`tav::ErrorCode` from `errors.hpp`. Catch `tav::Exception` and inspect `code()`.
-Errors retain the native C ABI code and message, including `CBOR_ENCODE_FAILED`
-for invalid builder inputs. The former CBOR-specific exception classes and
-`tav::cbor::Error` enum are removed. `rethrow_with_msg` prefixes the message
-of any `tav::Exception` and preserves its code.
-Serialization returns an owned `std::vector<uint8_t>`. See
-`ffi/tests/c-builder/` for CBOR examples and a CMake setup.
-
-Fallible public functions return `NULL` on success or an owned `TavError*` on
-failure. Inspect failures with `tav_error_code`/`tav_error_message`, then free
-them with `tav_error_free`. Owned handle out-parameters are reset to `NULL`
-before any fallible work and set only on success.
-
-If an entry point's implementation panics (e.g. on a bug triggered by
-malformed input), the panic is caught at the FFI boundary and reported as a
-`TAV_ERROR_PANIC` error instead of aborting the host process.
-
-## Building and linking
+On Linux with the OpenSSL development libraries installed:
 
 ```sh
-cargo build --manifest-path ffi/Cargo.toml
+cargo build --manifest-path ffi/Cargo.toml --no-default-features --features crypto_openssl
 ```
 
-That produces `libtee_attestation_verification_ffi.{a,so}` under
-`target/debug/`. Link against it and include `ffi/include/tav/`. See
-`ffi/tests/c-consumer/CMakeLists.txt`
-for a worked CMake setup, including static linking.
+This produces `libtee_attestation_verification_ffi.a` and
+`libtee_attestation_verification_ffi.so` under `target/debug/`.
+Add `ffi/include` to the include search path and include headers as
+`<tav/cbor.h>`, for example.
 
-## Generic CBOR
+The [C consumer CMake setup](../../tests/c-consumer/CMakeLists.txt) supports
+shared and static linking.
 
-`tav/cbor.h` exposes builders, deterministic and non-deterministic parsing,
-serialization, copies, and navigation through opaque `TavCborHandle*` handles.
-`tav/cbor.hpp` provides the C++ RAII wrapper. Failures use the shared
-`tav::Exception` and `tav::ErrorCode`.
+## Headers
 
-The generic API borrows input byte and text buffers. Keep each buffer alive
-and unmodified while any derived handle is in use, including projected
-children and shallow copies. `tav_cbor_deep_copy` copies all payloads.
-Navigation returns independently owned handles, so you can free a parent
-before its children. Release every handle with `tav_cbor_free`.
+Headers under [`ffi/include/tav/`](../../include/tav/) define the functions,
+error codes, ownership contracts, and limits.
 
-Container builders consume input handles and clear their slots. Duplicate
-or null handles reject the whole batch without consuming it. Output slots
-must not alias input slots. Parsing and serialization enforce a maximum
-depth of `TAV_CBOR_MAX_DEPTH`; builders do not limit nesting.
+| C header | Surface | C++ wrapper |
+|---|---|---|
+| `cbor.h` | CBOR construction, parsing, navigation, and serialization | `cbor.hpp` |
+| `snp.h` | SNP verification and report accessors | `snp.hpp` |
+| `cose.h` | COSE validation and verification | None |
+| `caci.h` | CACI endorsement and attestation verification | None |
+| `errors.h` | `TavError` and error codes | `errors.hpp` |
+| `byte_buffer.h` | Owned `TavByteBuffer` results | `byte_buffer.hpp` |
 
-Serialization returns an owned `TavByteBuffer*`. Read it with
-`tav_byte_buffer_data` and `tav_byte_buffer_len`, then release it with
-`tav_byte_buffer_free`. Errors use the shared `TavError*` API, not separate
-message buffers. Generic CBOR failures have `TAV_ERROR_CBOR_*` codes.
+`utils.h` includes both C utility headers. C++ wrappers manage handle lifetimes
+and report native errors through `tav::Exception`.
+The C++ consumer executable runs with AddressSanitizer for shared and static
+linking. The Rust library is not sanitizer-instrumented.
+
+## Ownership and errors
+
+Fallible functions return `NULL` on success or an owned `TavError*` on failure.
+Read the error with `tav_error_code` and `tav_error_message`, then release it
+with `tav_error_free`. Release buffers with `tav_byte_buffer_free`.
+Fallible entry points catch unwinding Rust panics and return `TAV_ERROR_PANIC`.
+Invalid pointers, allocation failure, and stack overflow are not recoverable
+through this mechanism.
+
+CBOR, COSE, and CACI use `TavCborHandle`; release each owned handle with
+`tav_cbor_free`. CBOR parsing and byte/text builders borrow their input.
+Keep that input alive and unchanged while derived handles use it, or use
+`tav_cbor_deep_copy` to obtain an independent value. Child handles survive
+parent release but do not extend caller-owned buffer lifetimes.
+
+Owned output slots are cleared before work. Release a previous result before
+reusing its slot, and keep output slots separate from input storage.
+Each header documents its remaining preconditions and failure behavior.
+
+## Examples
+
+- [C and C++ ABI consumers](../../tests/c-consumer/): verification, CBOR readers,
+  errors, and cleanup.
+- [C++ CBOR consumers](../../tests/c-builder/): builders and navigation through
+  `tav::cbor::Value`.
+- [C++ SNP consumers](../../tests/cpp-consumer/): RAII verification and report
+  accessors.
+- [CACI C demo](../../../demos/caci-c-ffi/): staged verification and CBOR access
+  to the returned endorsement.
+
+## CBOR handle ownership
+
+Navigation returns an independently owned handle that shares the immutable
+document without copying its subtree. Parent and child handles can be freed
+in either order. Caller-owned input must remain alive while either uses it.
 
 ```c
-TavCborHandle *value = NULL;
-TavByteBuffer *encoded = NULL;
-TavError *error = tav_cbor_make_signed(42, &value);
+TavCborHandle *root = NULL;
+TavCborHandle *child = NULL;
+TavError *error = tav_cbor_nondet_parse(cbor, cbor_len, TAV_CBOR_MAX_DEPTH, &root);
 if (error == NULL) {
-	error = tav_cbor_det_serialize(value, TAV_CBOR_MAX_DEPTH, &encoded);
+	error = tav_cbor_array_at(root, 0, &child);
 }
-if (error != NULL) {
+tav_cbor_free(root);
+if (error == NULL) {
+	int kind = tav_cbor_kind(child);
+	/* Use kind and child while cbor remains alive and unchanged. */
+} else {
 	fprintf(stderr, "%s\n", tav_error_message(error));
 	tav_error_free(error);
 }
-tav_byte_buffer_free(encoded);
-tav_cbor_free(value);
+tav_cbor_free(child);
 ```
 
-## COSE and CACI handles
-
-CBOR, COSE validation and verification, and CACI use `TavCborHandle*`.
-`tav/cose.h` declares only COSE functions and constants. All native CBOR
-operations are declared in `tav/cbor.h`.
-
-Parsing borrows byte and text payloads. To detach a parsed value from its input,
-call `tav_cbor_deep_copy` while the input remains alive, then free the borrowed
-handle. COSE validation returns an independently owned view of the same
-document. Borrowed input must outlive that view too. CACI verification instead
-returns a document with owned payloads.
-
-Use `tav_cbor_make_signed` or `tav_cbor_make_string` to create a map key, then
-call `tav_cbor_map_at` and free the key. Only `TAV_ERROR_CBOR_KEY_NOT_FOUND`
-means the key is absent. Other failures must not be treated as absence.
-Map keys may themselves be arrays or maps. To read both sides of an entry,
-call `tav_cbor_map_key_at` and `tav_cbor_map_value_at`; release the key if the
-second call fails.
-
-Readers use `TAV_ERROR_CBOR_*` codes and leave scalar and borrowed outputs
-unchanged on failure. Owned output slots are reset before work.
-Free each owned handle exactly once with `tav_cbor_free`.
-
-C# uses this native API while retaining its public methods, kind values,
-owned-input behavior, and 64-level depth limit. Its CBOR errors use the generic
-codes described in the [C# binding documentation](../../csharp/README.md).
-The independent WASM API remains unchanged.
-
-For a complete example, see
-[`print_uvm_endorsement`](../../../demos/caci-c-ffi/demo.c), which reads a CACI
-result with the generic CBOR API and keeps its borrowed input alive.
+Byte and text accessors return borrowed views. Keep the backing storage alive
+while using a view. For handle-owned payloads, keep the accessor's handle alive.
 
 ## SNP verification
 
 ```c
 TavSnpAttestationReport *report = NULL;
 TavError *error = tav_verify_snp_attestation(
-    report_bytes, report_len,
-    ark_pem, ark_pem_len,
-    ask_pem, ask_pem_len,
-    vcek_pem, vcek_pem_len,
-    &report);
-if (error != NULL) { /* inspect, then tav_error_free(error); */ }
-
-const uint8_t *measurement = NULL;
-size_t measurement_len = 0;
-tav_snp_attestation_report_measurement(report, &measurement, &measurement_len);
-
+	report_bytes, report_len,
+	ark_pem, ark_pem_len,
+	ask_pem, ask_pem_len,
+	vcek_pem, vcek_pem_len,
+	&report);
+if (error == NULL) {
+	const uint8_t *measurement = NULL;
+	size_t measurement_len = 0;
+	tav_snp_attestation_report_measurement(report, &measurement, &measurement_len);
+	/* Use measurement before freeing report. */
+} else {
+	fprintf(stderr, "%s\n", tav_error_message(error));
+	tav_error_free(error);
+}
 tav_snp_attestation_report_free(report);
 ```
 
 ## CACI verification
 
-CACI verification is staged: verify the SNP attestation and the UVM
-endorsement independently, then check the relying-party policy over both
-verified handles.
+CACI verification is staged: verify the SNP attestation and the UVM endorsement
+independently, then check the relying-party policy over both verified handles.
 
 ```c
 TavSnpAttestationReport *attestation = NULL;
-tav_verify_snp_attestation(report_bytes, report_len, ark_pem, ark_pem_len,
-                            ask_pem, ask_pem_len, vcek_pem, vcek_pem_len,
-                            &attestation);
-
 TavCborHandle *uvm = NULL;
-tav_verify_caci_uvm_endorsement(uvm_bytes, uvm_len, trusted_didx509,
-                                 trusted_didx509_len, &uvm);
-
 TavByteBuffer *report_data = NULL;
-TavError *error = tav_verify_caci_attestation(
-    attestation,
-    minimum_tcb_cpuids, minimum_tcb_values, minimum_tcb_count,
-    trusted_policy_digests, trusted_policy_digest_count,
-    uvm, uvm_feed, uvm_feed_len, minimum_svn,
-    &report_data);
-
+TavError *error = tav_verify_snp_attestation(
+	report_bytes, report_len, ark_pem, ark_pem_len,
+	ask_pem, ask_pem_len, vcek_pem, vcek_pem_len, &attestation);
+if (error == NULL) {
+	error = tav_verify_caci_uvm_endorsement(
+		uvm_bytes, uvm_len, trusted_didx509, trusted_didx509_len, &uvm);
+}
+if (error == NULL) {
+	error = tav_verify_caci_attestation(
+		attestation,
+		minimum_tcb_cpuids, minimum_tcb_values, minimum_tcb_count,
+		trusted_policy_digests, trusted_policy_digest_count,
+		uvm, uvm_feed, uvm_feed_len, minimum_svn, &report_data);
+}
+if (error == NULL) {
+	/* Use report_data before freeing it. */
+} else {
+	fprintf(stderr, "%s\n", tav_error_message(error));
+	tav_error_free(error);
+}
+tav_byte_buffer_free(report_data);
 tav_cbor_free(uvm);
 tav_snp_attestation_report_free(attestation);
 ```
 
-`report_data` is the verified 64-byte SNP `REPORT_DATA`; read it with
-`tav_byte_buffer_data`/`tav_byte_buffer_len` and release it with
-`tav_byte_buffer_free`. See `ffi/tests/c-consumer/caci.cpp` for the failure
-modes and full error handling.
+`report_data` contains the verified 64-byte SNP `REPORT_DATA`. Read it with
+`tav_byte_buffer_data` and `tav_byte_buffer_len` before releasing it.
+The [CACI consumer](../../tests/c-consumer/caci.cpp) covers failure cases.

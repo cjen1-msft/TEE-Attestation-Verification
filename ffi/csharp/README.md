@@ -133,17 +133,9 @@ managed wrappers are reclaimed by garbage collection; `SnpAttestationReport`,
 Native failures become `VerifyException` with a stable `ErrorCode`; managed input
 errors use standard .NET exceptions.
 
-`CborValue` uses the generic native API in `tav/cbor.h`. Parsing deep-copies
-the borrowed native result while the input snapshot is pinned. Returned values,
-their projections, and validated `CoseSign1` handles do not depend on managed
-input buffers remaining alive or pinned. Parsing and serialization retain the
-64-level depth limit.
-
-`CborKind` keeps its managed values; the binding explicitly translates native
-kinds. CBOR failures now report generic codes such as `CborDecodeFailed`,
-`CborTypeMismatch`, `CborOutOfBound`, and `CborKeyNotFound`, rather than COSE
-error codes. `TryGetValue` returns false only for a missing key; wrong types
-and disposed values still throw. COSE verification keeps its COSE error codes.
+`CborValue.FromBytes` snapshots and pins the input, then copies the parsed tree
+into native-owned storage before unpinning. Returned values and their projections
+do not depend on managed input buffers.
 
 ## Build and test from source
 

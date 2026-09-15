@@ -24,18 +24,8 @@ public sealed class CborValue : IDisposable
         _handle = handle;
     }
 
-    /// <summary>Gets the CBOR major type.</summary>
-    public CborKind Kind => NativeMethods.CborKind(_handle) switch
-    {
-        NativeCborKind.Signed => CborKind.Int,
-        NativeCborKind.Simple => CborKind.Simple,
-        NativeCborKind.Bytes => CborKind.Bytes,
-        NativeCborKind.String => CborKind.Text,
-        NativeCborKind.Array => CborKind.Array,
-        NativeCborKind.Map => CborKind.Map,
-        NativeCborKind.Tagged => CborKind.Tagged,
-        _ => throw new InvalidOperationException("Native CBOR value has an invalid kind."),
-    };
+    /// <summary>Gets the CBOR value kind.</summary>
+    public CborKind Kind => NativeMethods.CborKind(_handle);
 
     /// <summary>Gets the element count of an array or map.</summary>
     /// <exception cref="VerifyException">This value is not an array or map.</exception>

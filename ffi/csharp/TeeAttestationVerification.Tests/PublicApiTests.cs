@@ -41,28 +41,16 @@ public sealed class PublicApiTests
     }
 
     [Fact]
-    public void CborKindValuesRemainStable()
+    public void CborKindValuesMatchNativeAbi()
     {
-        CborKind[] kinds =
-            [CborKind.Int, CborKind.Simple, CborKind.Bytes, CborKind.Text,
-             CborKind.Array, CborKind.Map, CborKind.Tagged];
-        Assert.Equal(kinds, Enum.GetValues<CborKind>());
-        Assert.Equal(Enumerable.Range(1, 7), kinds.Select(kind => (int)kind));
-    }
-
-    [Fact]
-    public void NativeCborKindValuesMatchNativeAbi()
-    {
-        Type nativeKind = typeof(CborValue).Assembly.GetType(
-            "TeeAttestationVerification.NativeCborKind", throwOnError: true)!;
-        AssertManagedEnumMatchesHeader(nativeKind,
+        AssertManagedEnumMatchesHeader(typeof(CborKind),
             "ffi/include/tav/cbor.h",
             "TavCborHandleKind",
             [
                 ("TAV_CBOR_HANDLE_KIND_INVALID", "Invalid"),
-                ("TAV_CBOR_HANDLE_KIND_SIGNED", "Signed"),
+                ("TAV_CBOR_HANDLE_KIND_SIGNED", "Int"),
                 ("TAV_CBOR_HANDLE_KIND_BYTES", "Bytes"),
-                ("TAV_CBOR_HANDLE_KIND_STRING", "String"),
+                ("TAV_CBOR_HANDLE_KIND_STRING", "Text"),
                 ("TAV_CBOR_HANDLE_KIND_ARRAY", "Array"),
                 ("TAV_CBOR_HANDLE_KIND_MAP", "Map"),
                 ("TAV_CBOR_HANDLE_KIND_TAGGED", "Tagged"),

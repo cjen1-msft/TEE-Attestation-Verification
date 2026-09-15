@@ -5,18 +5,6 @@ using System.Runtime.InteropServices;
 
 namespace TeeAttestationVerification;
 
-internal enum NativeCborKind
-{
-    Invalid = -1,
-    Signed = 0,
-    Bytes = 1,
-    String = 2,
-    Array = 3,
-    Map = 4,
-    Tagged = 5,
-    Simple = 6,
-}
-
 internal static partial class NativeMethods
 {
     // Platform-neutral name: .NET's default resolution probes the
@@ -241,7 +229,7 @@ internal static partial class NativeMethods
         SafeCborValueHandle value, nuint maxDepth, out IntPtr bytes);
 
     [LibraryImport(LibraryName, EntryPoint = "tav_cbor_kind")]
-    internal static partial NativeCborKind CborKind(SafeCborValueHandle value);
+    internal static partial CborKind CborKind(SafeCborValueHandle value);
 
     [LibraryImport(LibraryName, EntryPoint = "tav_cbor_as_signed")]
     internal static partial IntPtr CborInt(SafeCborValueHandle value, out long result);

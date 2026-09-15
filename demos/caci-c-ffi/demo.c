@@ -421,7 +421,7 @@ static void print_uvm_endorsement(const TavCborHandle *uvm_endorsement) {
         tav_validate_cose_sign1(uvm_endorsement, &sign1),
         "validate returned UVM COSE_Sign1");
     check_cose_error(
-        tav_cbor_array_at((const TavCborHandle *)sign1, TAV_COSE_SIGN1_PROTECTED, &protected_value),
+        tav_cbor_array_at(sign1, TAV_COSE_SIGN1_PROTECTED, &protected_value),
         "read UVM protected header bytes");
     check_cose_error(
         tav_cbor_as_bytes(protected_value, &protected_bytes, &protected_len),

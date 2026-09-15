@@ -88,6 +88,35 @@ jobs:
       - name: Run C consumer tests
         run: ctest --test-dir target/c-consumer-tests --output-on-failure
 
+  ffi-cpp-api:
+    name: FFI C++ wrapper consumer tests (OpenSSL, ${{ matrix.link }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        link:
+          - shared
+          - static
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install rust
+        run: |
+          rustup update stable && rustup default stable
+
+      - name: Configure C++ consumer tests
+        run: >
+          cmake -S ffi/tests/cpp-consumer -B target/cpp-consumer-tests
+          -DTAV_BACKEND_FEATURES=crypto_openssl
+          -DTAV_LINK_STATIC=${{ matrix.link == 'static' && 'ON' || 'OFF' }}
+
+      - name: Build C++ consumer tests
+        run: cmake --build target/cpp-consumer-tests
+
+      - name: Run C++ consumer tests
+        run: ctest --test-dir target/cpp-consumer-tests --output-on-failure
+
   ffi-csharp-api:
     name: FFI C# API consumer tests
     uses: ./.github/workflows/csharp-package.yml

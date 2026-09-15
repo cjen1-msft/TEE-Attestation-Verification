@@ -9,7 +9,7 @@ public sealed class PublicApiTests
     public void ErrorCodeValuesMatchNativeAbi()
     {
         AssertManagedEnumMatchesHeader<ErrorCode>(
-            "ffi/include/tav/utils.h",
+            "ffi/include/tav/errors.h",
             "TavErrorCode",
             [
                 ("TAV_ERROR_OK", nameof(ErrorCode.Ok)),

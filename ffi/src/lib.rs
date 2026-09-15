@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 //! External C and WebAssembly bindings for TEE attestation verification.
 //!
 //! Rust consumers should use the domain crates directly. This crate owns the
@@ -18,7 +20,7 @@ use wasm_bindgen::prelude::*;
 
 /// Shared error codes returned by the public C ABI error accessors.
 ///
-/// The numeric values must match `ffi/include/tav/utils.h`.
+/// The numeric values must match `ffi/include/tav/errors.h`.
 ///
 /// This is also the single source of truth for the wasm API's error codes:
 /// on wasm targets this same enum is exported to JS (as `ErrorCode`, via
@@ -189,7 +191,7 @@ mod tests {
 
     #[test]
     fn c_header_error_codes_match_rust_enum() {
-        let header = include_str!("../include/tav/utils.h");
+        let header = include_str!("../include/tav/errors.h");
 
         let error_code_map = [
             ("TAV_ERROR_OK", TavErrorCode::Ok as i32),
@@ -257,7 +259,7 @@ mod tests {
             assert_eq!(
                 c_header_enum_value(header, name),
                 Some(value),
-                "{name} in include/tav/utils.h must match Rust TavErrorCode"
+                "{name} in include/tav/errors.h must match Rust TavErrorCode"
             );
         }
 
@@ -272,7 +274,7 @@ mod tests {
             error_code_map.iter().map(|(name, _)| *name).collect();
         assert_eq!(
             header_names, mapped_names,
-            "include/tav/utils.h TAV_ERROR_ codes must exactly match the checked set"
+            "include/tav/errors.h TAV_ERROR_ codes must exactly match the checked set"
         );
     }
 

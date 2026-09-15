@@ -17,6 +17,17 @@
 //! but callers should compare `report_data` to their expected nonce, challenge,
 //! public-key digest, or other application-specific context.
 //!
+//! # Guarantees and limitations
+//!
+//! `Ok(())` means the supplied VCEK signed the report and its hardware ID
+//! and TCB extensions match the report. [`ChainVerification::WithPinnedArk`]
+//! and [`ChainVerification::WithProvidedArk`] also verify the VCEK against
+//! the AMD root key compiled into this crate. [`ChainVerification::Skip`]
+//! trusts the supplied VCEK as is. Validity periods are checked at the local
+//! clock when the chain is verified. Revocation is never checked. Nonce
+//! binding, measurement, guest policy, and minimum TCB levels are the
+//! caller's responsibility. See the crate README.
+//!
 //! The `sync` and `asynchronous` modules provide separate APIs for synchronous and asynchronous crypto backends.
 //!
 //! # Example

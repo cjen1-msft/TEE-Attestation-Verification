@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- C++ RAII wrapper for SNP attestation verification: `<tav/snp.hpp>` (`tav::snp::Report`), `<tav/errors.hpp>` (`tav::Exception`), and `<tav/byte_buffer.hpp>` (`tav::ByteBuffer`). (#160)
+
 ### Changed
 
 - SNP verification rejects reports that are not VCEK-signed (VLEK, `None`, or reserved `SIGNING_KEY`), requires the hardware ID extension in the VCEK, and matches TCB and hardware ID extension values against exact DER INTEGER, raw, or OCTET STRING encodings only. (#147)

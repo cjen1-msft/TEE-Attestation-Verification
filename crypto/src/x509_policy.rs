@@ -6,6 +6,15 @@
 use std::time::Duration;
 use std::{future::Future, pin::Pin};
 
+#[cfg(any(
+    crypto_backend = "crypto_pure_rust",
+    crypto_backend = "crypto_webcrypto"
+))]
+use x509_cert::der;
+
+use der::{asn1::AnyRef, Decode, Reader, SliceReader, Tag, Tagged};
+
+use super::x509_eku::{encode_purpose_oid, ANY_EXTENDED_KEY_USAGE, EXTENDED_KEY_USAGE};
 use super::CertificateBackend;
 
 pub(crate) fn verify_certificate_path<Certificate>(
@@ -79,10 +88,12 @@ where
 /// Evaluates the implemented RFC 5280 path policy subset for an ordered path.
 ///
 /// This assumes the path has already passed signature verification and is
-/// ordered from the trusted root toward the target certificate.
+/// ordered from the trusted root toward the target certificate. `purpose_oid`,
+/// if supplied, is checked against the target certificate's EKU.
 pub(crate) fn rfc5280_policy<'cert, Backend, Path>(
     path: Path,
     unix_time: Duration,
+    purpose_oid: Option<&str>,
 ) -> super::Result<()>
 where
     Backend: CertificateBackend,
@@ -121,8 +132,7 @@ where
         }
     }
 
-    for window in padded_windows::<_, _, 1>(path.clone()) {
-        let cert = window[0].unwrap();
+    for (depth, cert) in path.clone().enumerate() {
         let cert_subject = Backend::subject_name(cert);
         if !Backend::is_valid_at(cert, unix_time)? {
             return Err(format!(
@@ -136,6 +146,12 @@ where
         assert_skipped_extension_not_present::<Backend>(cert, oid::NAME_CONSTRAINTS, true)?;
         assert_skipped_extension_not_present::<Backend>(cert, oid::POLICY_CONSTRAINTS, true)?;
         assert_skipped_extension_not_present::<Backend>(cert, oid::INHIBIT_ANY_POLICY, true)?;
+        let purpose = if depth == path_len - 1 {
+            purpose_oid
+        } else {
+            None
+        };
+        check_extended_key_usage::<Backend>(cert, purpose)?;
         assert_no_unhandled_critical_extensions::<Backend>(cert)?;
     }
 
@@ -223,6 +239,66 @@ where
     Ok(())
 }
 
+/// Validate the entire EKU value, optionally checking an intended leaf purpose.
+pub(crate) fn check_extended_key_usage<Backend: CertificateBackend>(
+    cert: &Backend::Certificate,
+    purpose_oid: Option<&str>,
+) -> super::Result<()> {
+    let intended = purpose_oid.map(encode_purpose_oid).transpose()?;
+    let Some(value) = Backend::get_extension_value_by_oid(cert, EXTENDED_KEY_USAGE)? else {
+        return Ok(());
+    };
+
+    let allowed = SliceReader::new(&value)
+        .and_then(|mut reader| {
+            let allowed = reader.sequence(|sequence| {
+                if sequence.is_finished() {
+                    return Err(Tag::Sequence.value_error()); // SIZE (1..MAX)
+                }
+                let mut allowed = intended.is_none();
+                while !sequence.is_finished() {
+                    let id = AnyRef::decode(sequence)?;
+                    id.tag().assert_eq(Tag::ObjectIdentifier)?;
+                    let id = id.value();
+                    if !valid_oid_encoding(id) {
+                        return Err(Tag::ObjectIdentifier.value_error());
+                    }
+                    allowed |= intended.as_deref() == Some(id) || id == ANY_EXTENDED_KEY_USAGE;
+                }
+                Ok(allowed)
+            })?;
+            reader.finish(allowed)
+        })
+        .map_err(|error| {
+            format!(
+                "Certificate {} has malformed extendedKeyUsage: {error}",
+                Backend::subject_name(cert)
+            )
+        })?;
+
+    if let Some(purpose) = purpose_oid.filter(|_| !allowed) {
+        return Err(format!(
+            "Certificate {} extendedKeyUsage does not permit purpose {purpose}",
+            Backend::subject_name(cert)
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn valid_oid_encoding(id: &[u8]) -> bool {
+    // Each base-128 subidentifier is minimally encoded and must terminate.
+    let mut at_start = true;
+    for &byte in id {
+        if at_start && byte == 0x80 {
+            return false;
+        }
+        at_start = byte & 0x80 == 0;
+    }
+    !id.is_empty() && at_start
+}
+
 /// Rejects an extension that this partial policy does not implement.
 fn assert_skipped_extension_not_present<Backend: CertificateBackend>(
     cert: &Backend::Certificate,
@@ -261,6 +337,8 @@ fn assert_no_unhandled_critical_extensions<Backend: CertificateBackend>(
 }
 
 mod oid {
+    use super::EXTENDED_KEY_USAGE;
+
     /// RFC 5280 section 4.2.1.9: id-ce-basicConstraints OBJECT IDENTIFIER ::= { id-ce 19 }.
     pub const BASIC_CONSTRAINTS: &str = "2.5.29.19";
     /// RFC 5280 section 4.2.1.3: id-ce-keyUsage OBJECT IDENTIFIER ::= { id-ce 15 }.
@@ -276,7 +354,8 @@ mod oid {
     /// RFC 5280 section 4.2.1.14: id-ce-inhibitAnyPolicy OBJECT IDENTIFIER ::= { id-ce 54 }.
     pub const INHIBIT_ANY_POLICY: &str = "2.5.29.54";
 
-    pub const HANDLED_CRITICAL_EXTENSIONS: &[&str] = &[BASIC_CONSTRAINTS, KEY_USAGE];
+    pub const HANDLED_CRITICAL_EXTENSIONS: &[&str] =
+        &[BASIC_CONSTRAINTS, KEY_USAGE, EXTENDED_KEY_USAGE];
 }
 
 #[cfg(test)]
@@ -285,10 +364,81 @@ mod tests {
     use std::time::Duration;
 
     use super::{padded_windows, rfc5280_policy};
-    use crate::{BasicConstraints, CertificateBackend, KeyUsage, Result};
+    #[cfg(sync_crypto)]
+    use crate::CryptoBackend;
+    use crate::{
+        AsyncCryptoBackend, BasicConstraints, CertificateBackend, DigestAlgorithm, Key, KeyUsage,
+        Result, Signature,
+    };
 
     fn policy(path: &[&TestCertificate], unix_time: Duration) -> Result<()> {
-        rfc5280_policy::<TestBackend, _>(path.iter().copied(), unix_time)
+        rfc5280_policy::<TestBackend, _>(path.iter().copied(), unix_time, None)
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    async fn legacy_backends_fail_closed_for_an_intended_purpose() {
+        let root = TestCertificate::ca("Root", "Root");
+        let leaf = TestCertificate::leaf("Leaf", "Root");
+        let time = Some(Duration::from_secs(10));
+        let purpose = Some("1.3.6.1.5.5.7.3.3");
+
+        for (time, valid) in [(time, true), (Some(Duration::from_secs(200)), false)] {
+            assert_eq!(
+                <TestBackend<true> as AsyncCryptoBackend>::verify_chain_with_purpose(
+                    &root,
+                    &[],
+                    &leaf,
+                    time,
+                    None,
+                )
+                .await
+                .is_ok(),
+                valid,
+            );
+            #[cfg(sync_crypto)]
+            assert_eq!(
+                <TestBackend as CryptoBackend>::verify_chain_with_purpose(
+                    &root,
+                    &[],
+                    &leaf,
+                    time,
+                    None,
+                )
+                .is_ok(),
+                valid,
+            );
+        }
+        <TestBackend<true> as AsyncCryptoBackend>::verify_chain_with_purpose(
+            &root,
+            &[],
+            &leaf,
+            time,
+            purpose,
+        )
+        .await
+        .expect_err("legacy asynchronous backend must not silently skip a requested purpose");
+
+        #[cfg(sync_crypto)]
+        {
+            <TestBackend as CryptoBackend>::verify_chain_with_purpose(
+                &root,
+                &[],
+                &leaf,
+                time,
+                purpose,
+            )
+            .expect_err("legacy synchronous backend must not silently skip a requested purpose");
+            <TestBackend as AsyncCryptoBackend>::verify_chain_with_purpose(
+                &root,
+                &[],
+                &leaf,
+                time,
+                purpose,
+            )
+            .await
+            .expect_err("the asynchronous adapter must preserve the synchronous backend's error");
+        }
     }
 
     #[test]
@@ -521,9 +671,9 @@ mod tests {
         }
     }
 
-    struct TestBackend;
+    struct TestBackend<const ASYNC: bool = false>;
 
-    impl CertificateBackend for TestBackend {
+    impl<const ASYNC: bool> CertificateBackend for TestBackend<ASYNC> {
         type Certificate = TestCertificate;
 
         fn from_pem(_pem: &[u8]) -> Result<Self::Certificate> {
@@ -554,7 +704,7 @@ mod tests {
             _cert: &Self::Certificate,
             _oid: &str,
         ) -> Result<Option<Vec<u8>>> {
-            unimplemented!("test backend does not expose raw extensions")
+            Ok(None)
         }
 
         fn subject_name(cert: &Self::Certificate) -> String {
@@ -598,6 +748,51 @@ mod tests {
                 .iter()
                 .filter_map(|(oid, critical)| critical.then(|| oid.clone()))
                 .collect()
+        }
+    }
+
+    #[cfg(sync_crypto)]
+    impl CryptoBackend for TestBackend<false> {
+        type Key = Key;
+        type Signature = Signature;
+
+        fn digest(_: DigestAlgorithm, _: &[u8]) -> Result<Vec<u8>> {
+            unimplemented!()
+        }
+
+        fn verify_signature(_: &Key, _: &Signature, _: &[u8]) -> Result<()> {
+            unimplemented!()
+        }
+
+        fn verify_chain(
+            root: &TestCertificate,
+            _: &[&TestCertificate],
+            leaf: &TestCertificate,
+            unix_time: Option<Duration>,
+        ) -> Result<()> {
+            policy(&[root, leaf], unix_time.unwrap_or_default())
+        }
+    }
+
+    impl AsyncCryptoBackend for TestBackend<true> {
+        type Key = Key;
+        type Signature = Signature;
+
+        async fn digest(_: DigestAlgorithm, _: &[u8]) -> Result<Vec<u8>> {
+            unimplemented!()
+        }
+
+        async fn verify_signature(_: &Key, _: &Signature, _: &[u8]) -> Result<()> {
+            unimplemented!()
+        }
+
+        async fn verify_chain(
+            root: &TestCertificate,
+            _: &[&TestCertificate],
+            leaf: &TestCertificate,
+            unix_time: Option<Duration>,
+        ) -> Result<()> {
+            policy(&[root, leaf], unix_time.unwrap_or_default())
         }
     }
 }

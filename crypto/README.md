@@ -14,7 +14,7 @@ backend features are enabled, `build.rs` selects the target-preferred backend.
 | `crypto_openssl` | Native | yes | yes | Uses OpenSSL for native certificate-chain verification and primitive verification. |
 | `crypto_webcrypto` | WASM | no | yes | Uses `globalThis.crypto.subtle` for primitive verification and the shared X.509 path validator. |
 | `crypto_pure_rust` | Native, WASM | yes | yes | Uses RustCrypto crates and the shared X.509 path validator. |
-| `crypto_windows` | Windows | yes | yes | Uses Windows CNG for primitive verification and Crypt32 for certificate-chain verification. |
+| `crypto_windows` | Windows | yes | yes | Uses Windows CNG and Crypt32 for signatures and the shared X.509 path validator. |
 
 Windows targets prefer `crypto_windows` whenever it is enabled, including when
 `crypto_openssl` is also enabled. Other native targets prefer `crypto_openssl`
@@ -22,6 +22,22 @@ when enabled, then `crypto_pure_rust`.
 WASM targets prefer `crypto_webcrypto` when enabled, then `crypto_pure_rust`.
 Use `--no-default-features --features crypto_windows` to select only the
 Windows backend.
+
+## Certificate purpose
+
+`CryptoBackend::verify_chain` and `AsyncCryptoBackend::verify_chain` verify a
+certificate path without authorizing any particular use of the leaf. For a known
+intended purpose, call `verify_chain_with_purpose` on the same trait with its
+dotted-decimal OID as the last argument (e.g. `Some("1.3.6.1.5.5.7.3.3")` for
+code signing). `None` is equivalent to `verify_chain`. Custom backends that
+do not implement this method reject requested purposes by default.
+
+All built-in backends reject malformed EKU on the verified path, even in
+purpose-neutral mode. For a supplied purpose, a leaf with EKU must list that OID
+or `anyExtendedKeyUsage`, whether the extension is critical or not. A leaf
+without EKU is not restricted by EKU. This check is limited to RFC 5280 leaf
+EKU; it doesn't validate leaf `keyUsage`, require explicit EKU, or apply an
+application-specific purpose profile.
 
 ## Scope
 

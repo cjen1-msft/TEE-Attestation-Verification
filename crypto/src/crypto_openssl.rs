@@ -8,10 +8,11 @@
 //! verification. It is the native backend selected when `crypto_openssl` is
 //! enabled for a non-`wasm32` target.
 
-use foreign_types_shared::ForeignType;
-use openssl::asn1::{Asn1Object, Asn1Time};
+use foreign_types_shared::{ForeignType, ForeignTypeRef};
+use openssl::asn1::{Asn1Object, Asn1OctetStringRef, Asn1Time};
 use openssl::bn::BigNum;
 use openssl::ecdsa::EcdsaSig;
+use openssl::error::ErrorStack;
 use openssl::hash::{hash, MessageDigest};
 use openssl::nid::Nid;
 use openssl::pkey::{PKey, Public};
@@ -20,14 +21,16 @@ use openssl::sign::{RsaPssSaltlen, Verifier as OpenSslVerifier};
 use openssl::stack::Stack;
 use openssl::x509::verify::X509VerifyFlags;
 use openssl::x509::verify::X509VerifyParam;
+use openssl::x509::{X509Extension, X509ExtensionRef, X509Ref};
 use openssl_sys::{
-    ASN1_STRING_get0_data, ASN1_STRING_length, OBJ_obj2txt, X509_EXTENSION_get_critical,
+    OBJ_cmp, OBJ_obj2txt, X509V3_EXT_d2i, X509V3_EXT_i2d, X509_EXTENSION_get_critical,
     X509_EXTENSION_get_data, X509_EXTENSION_get_object, X509_get_ext, X509_get_ext_by_OBJ,
     X509_get_ext_count, X509_get_extension_flags, X509_get_key_usage, X509v3_KU_KEY_CERT_SIGN,
     EXFLAG_CA,
 };
 use std::cmp::Ordering;
 
+use super::x509_eku::{encode_purpose_oid, EXTENDED_KEY_USAGE};
 use super::{
     compatible_key_and_signature, CertificateBackend, CryptoBackend, DigestAlgorithm,
     EcSignatureKeyAlgorithm, KeyBackend, Result, RsaPkcs1v15SignatureKeyAlgorithm,
@@ -142,38 +145,9 @@ impl CertificateBackend for Crypto {
     }
 
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>> {
-        let oid = Asn1Object::from_str(oid)
-            .map_err(|e| format!("Invalid extension OID {}: {:?}", oid, e))?;
-
-        unsafe {
-            let index = X509_get_ext_by_OBJ(cert.as_ptr(), oid.as_ptr(), -1);
-            if index == -1 {
-                return Ok(None);
-            }
-
-            let extension = X509_get_ext(cert.as_ptr(), index);
-            if extension.is_null() {
-                return Err("OpenSSL returned null extension pointer".into());
-            }
-
-            let data = X509_EXTENSION_get_data(extension);
-            if data.is_null() {
-                return Err("OpenSSL returned null extension data".into());
-            }
-
-            let len = ASN1_STRING_length(data.cast());
-            if len < 0 {
-                return Err("OpenSSL returned negative extension length".into());
-            }
-
-            let data_ptr = ASN1_STRING_get0_data(data.cast());
-            if data_ptr.is_null() {
-                return Err("OpenSSL returned null extension bytes".into());
-            }
-
-            let bytes = std::slice::from_raw_parts(data_ptr, len as usize).to_vec();
-            Ok(Some(bytes))
-        }
+        unique_extension_by_oid(cert, oid)?
+            .map(|extension| Ok(extension_der(extension)?.to_vec()))
+            .transpose()
     }
 
     fn subject_name(cert: &Self::Certificate) -> String {
@@ -287,6 +261,103 @@ impl CertificateBackend for Crypto {
     }
 }
 
+fn unique_extension_by_oid<'cert>(
+    cert: &'cert X509Ref,
+    oid: &str,
+) -> Result<Option<&'cert X509ExtensionRef>> {
+    let object =
+        Asn1Object::from_str(oid).map_err(|e| format!("Invalid extension OID {oid}: {e:?}"))?;
+
+    unsafe {
+        let index = X509_get_ext_by_OBJ(cert.as_ptr(), object.as_ptr(), -1);
+        if index == -1 {
+            return Ok(None);
+        }
+        if X509_get_ext_by_OBJ(cert.as_ptr(), object.as_ptr(), index) != -1 {
+            return Err(format!("Certificate contains duplicate extension {oid}").into());
+        }
+        let extension = X509_get_ext(cert.as_ptr(), index);
+        if extension.is_null() {
+            return Err("OpenSSL returned null extension pointer".into());
+        }
+        Ok(Some(X509ExtensionRef::from_ptr(extension)))
+    }
+}
+
+fn extension_der(extension: &X509ExtensionRef) -> Result<&[u8]> {
+    let data = unsafe { X509_EXTENSION_get_data(extension.as_ptr()) };
+    if data.is_null() {
+        return Err("OpenSSL returned null extension data".into());
+    }
+    Ok(unsafe { Asn1OctetStringRef::from_ptr(data).as_slice() })
+}
+
+fn check_extended_key_usage(cert: &X509Ref, purpose_oid: Option<&str>) -> Result<()> {
+    let intended = purpose_oid
+        .map(|oid| -> Result<_> {
+            encode_purpose_oid(oid)?;
+            // OpenSSL requires a single-digit first arc in its text parser.
+            let normalized = oid
+                .split('.')
+                .map(|arc| match arc.trim_start_matches('0') {
+                    "" => "0",
+                    digits => digits,
+                })
+                .collect::<Vec<_>>()
+                .join(".");
+            Ok(Asn1Object::from_str(&normalized)?)
+        })
+        .transpose()?;
+    let Some(extension) = unique_extension_by_oid(cert, EXTENDED_KEY_USAGE)? else {
+        return Ok(());
+    };
+
+    let malformed = || {
+        format!(
+            "Certificate {:?} has malformed extendedKeyUsage",
+            cert.subject_name()
+        )
+    };
+    // The EKU decoder returns a newly allocated stack of ASN1_OBJECTs.
+    let purposes = unsafe {
+        let decoded = X509V3_EXT_d2i(extension.as_ptr());
+        if decoded.is_null() {
+            return Err(format!("{}: {}", malformed(), ErrorStack::get()).into());
+        }
+        Stack::<Asn1Object>::from_ptr(decoded.cast())
+    };
+    if purposes.is_empty() {
+        return Err(malformed().into());
+    }
+
+    // OpenSSL can consume only a prefix or accept BER. Require the exact DER
+    // encoding of the decoded sequence.
+    let canonical = unsafe {
+        let encoded = X509V3_EXT_i2d(Nid::EXT_KEY_USAGE.as_raw(), 0, purposes.as_ptr().cast());
+        if encoded.is_null() {
+            return Err(ErrorStack::get().into());
+        }
+        X509Extension::from_ptr(encoded)
+    };
+    if extension_der(&canonical)? != extension_der(extension)? {
+        return Err(malformed().into());
+    }
+
+    if let Some((purpose_oid, intended)) = purpose_oid.zip(intended) {
+        if !purposes.iter().any(|oid| {
+            oid.nid() == Nid::ANYEXTENDEDKEYUSAGE
+                || unsafe { OBJ_cmp(oid.as_ptr(), intended.as_ptr()) == 0 }
+        }) {
+            return Err(format!(
+                "Certificate {:?} extendedKeyUsage does not permit purpose {purpose_oid}",
+                cert.subject_name()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
 /// `Asn1Object`'s display form is the long name for known OIDs, so ask OpenSSL
 /// for the numeric form that `CertificateBackend` specifies.
 fn dotted_decimal_oid(object: *mut openssl_sys::ASN1_OBJECT) -> Option<String> {
@@ -347,6 +418,16 @@ impl CryptoBackend for Crypto {
         leaf: &Certificate,
         unix_time: Option<std::time::Duration>,
     ) -> Result<()> {
+        Self::verify_chain_with_purpose(trusted_cert, untrusted_chain, leaf, unix_time, None)
+    }
+
+    fn verify_chain_with_purpose(
+        trusted_cert: &Certificate,
+        untrusted_chain: &[&Certificate],
+        leaf: &Certificate,
+        unix_time: Option<std::time::Duration>,
+        purpose_oid: Option<&str>,
+    ) -> Result<()> {
         let mut store_builder = openssl::x509::store::X509StoreBuilder::new()?;
         store_builder.add_cert(trusted_cert.to_owned())?;
         store_builder.set_flags(X509VerifyFlags::PARTIAL_CHAIN)?;
@@ -365,11 +446,22 @@ impl CryptoBackend for Crypto {
         for cert in untrusted_chain {
             chain.push((*cert).to_owned())?;
         }
-        match ctx.init(&store, leaf, &chain, |c| c.verify_cert()) {
-            Ok(true) => Ok(()),
-            Ok(false) => Err("Certificate verification failed".into()),
-            Err(e) => Err(Box::new(e)),
-        }
+        ctx.init(&store, leaf, &chain, |ctx| {
+            if !ctx.verify_cert()? {
+                return Ok(Err("Certificate verification failed".into()));
+            }
+
+            // Native purpose profiles also impose non-EKU policy. Check the
+            // caller's leaf purpose on the path OpenSSL actually verified.
+            Ok((|| {
+                let path = ctx.chain().ok_or("OpenSSL returned no verified path")?;
+                for (depth, cert) in path.iter().enumerate() {
+                    let purpose = if depth == 0 { purpose_oid } else { None };
+                    check_extended_key_usage(cert, purpose)?;
+                }
+                Ok(())
+            })())
+        })?
     }
 }
 

@@ -13,6 +13,8 @@ use std::time::Duration;
 
 pub mod base64;
 pub mod hex;
+mod x509_eku;
+#[cfg(not(crypto_backend = "crypto_openssl"))]
 mod x509_policy;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -83,7 +85,7 @@ pub trait CertificateBackend {
     /// Extract the SubjectPublicKeyInfo (DER-encoded) from the certificate.
     fn get_public_key(cert: &Self::Certificate) -> Result<Vec<u8>>;
 
-    /// Extract an extension value by dotted-decimal OID.
+    /// Extract an extension value by dotted-decimal OID. Duplicate extensions with that OID are an error.
     fn get_extension_value_by_oid(cert: &Self::Certificate, oid: &str) -> Result<Option<Vec<u8>>>;
 
     /// Return the certificate subject distinguished name for diagnostics.
@@ -145,13 +147,35 @@ pub trait CryptoBackend: CertificateBackend {
         signed_bytes: &[u8],
     ) -> Result<()>;
 
-    /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
+    /// Verify a certificate chain without checking permission for any particular leaf purpose.
     fn verify_chain(
         trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
         leaf: &<Self as CertificateBackend>::Certificate,
         unix_time: Option<Duration>,
     ) -> Result<()>;
+
+    /// Verify a chain and, for `Some(purpose_oid)`, check the leaf's extended key usage.
+    ///
+    /// The caller supplies the intended purpose as a dotted-decimal OID (not
+    /// `anyExtendedKeyUsage`). A missing EKU does not restrict use. A present
+    /// EKU must list the purpose or `anyExtendedKeyUsage`, regardless of its
+    /// criticality. This does not check leaf `keyUsage` or application policy.
+    /// `None` validates the chain without checking permission for a purpose.
+    /// Backends that do not override this method reject `Some` rather than
+    /// proceeding without checking the requested purpose.
+    fn verify_chain_with_purpose(
+        trusted_cert: &<Self as CertificateBackend>::Certificate,
+        untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
+        leaf: &<Self as CertificateBackend>::Certificate,
+        unix_time: Option<Duration>,
+        purpose_oid: Option<&str>,
+    ) -> Result<()> {
+        if purpose_oid.is_some() {
+            return Err("This backend does not support leaf EKU purpose checking".into());
+        }
+        Self::verify_chain(trusted_cert, untrusted_chain, leaf, unix_time)
+    }
 }
 
 /// Asynchronous API for a cryptographic backend
@@ -172,13 +196,30 @@ pub trait AsyncCryptoBackend: CertificateBackend {
         signed_bytes: &[u8],
     ) -> impl std::future::Future<Output = Result<()>>;
 
-    /// Verify a certificate chain from `trusted_cert` through `untrusted_chain` to `leaf`.
+    /// Verify a certificate chain without checking permission for any particular leaf purpose.
     fn verify_chain(
         trusted_cert: &<Self as CertificateBackend>::Certificate,
         untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
         leaf: &<Self as CertificateBackend>::Certificate,
         unix_time: Option<Duration>,
     ) -> impl std::future::Future<Output = Result<()>>;
+
+    /// Asynchronously verify a chain with the same leaf EKU policy as
+    /// [`CryptoBackend::verify_chain_with_purpose`].
+    fn verify_chain_with_purpose(
+        trusted_cert: &<Self as CertificateBackend>::Certificate,
+        untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
+        leaf: &<Self as CertificateBackend>::Certificate,
+        unix_time: Option<Duration>,
+        purpose_oid: Option<&str>,
+    ) -> impl std::future::Future<Output = Result<()>> {
+        async move {
+            if purpose_oid.is_some() {
+                return Err("This backend does not support leaf EKU purpose checking".into());
+            }
+            Self::verify_chain(trusted_cert, untrusted_chain, leaf, unix_time).await
+        }
+    }
 }
 
 /// Any synchronous `CryptoBackend` also implements `AsyncCryptoBackend` by blocking on the synchronous verification.
@@ -209,6 +250,22 @@ where
         unix_time: Option<Duration>,
     ) -> Result<()> {
         <C as CryptoBackend>::verify_chain(trusted_cert, untrusted_chain, leaf, unix_time)
+    }
+
+    async fn verify_chain_with_purpose(
+        trusted_cert: &<Self as CertificateBackend>::Certificate,
+        untrusted_chain: &[&<Self as CertificateBackend>::Certificate],
+        leaf: &<Self as CertificateBackend>::Certificate,
+        unix_time: Option<Duration>,
+        purpose_oid: Option<&str>,
+    ) -> Result<()> {
+        <C as CryptoBackend>::verify_chain_with_purpose(
+            trusted_cert,
+            untrusted_chain,
+            leaf,
+            unix_time,
+            purpose_oid,
+        )
     }
 }
 

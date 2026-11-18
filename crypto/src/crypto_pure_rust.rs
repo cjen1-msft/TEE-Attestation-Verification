@@ -337,6 +337,16 @@ impl CryptoBackend for Crypto {
         leaf: &Certificate,
         unix_time: Option<Duration>,
     ) -> Result<()> {
+        Self::verify_chain_with_purpose(trusted_cert, untrusted_chain, leaf, unix_time, None)
+    }
+
+    fn verify_chain_with_purpose(
+        trusted_cert: &Certificate,
+        untrusted_chain: &[&Certificate],
+        leaf: &Certificate,
+        unix_time: Option<Duration>,
+        purpose_oid: Option<&str>,
+    ) -> Result<()> {
         x509_policy::verify_certificate_path(
             verify_certificate_signature,
             trusted_cert,
@@ -348,7 +358,11 @@ impl CryptoBackend for Crypto {
         let policy_path = std::iter::once(trusted_cert)
             .chain(untrusted_chain.iter().copied())
             .chain((!singleton_path).then_some(leaf));
-        x509_policy::rfc5280_policy::<Crypto, _>(policy_path, unix_time.unwrap_or(unix_time_now()?))
+        x509_policy::rfc5280_policy::<Crypto, _>(
+            policy_path,
+            unix_time.unwrap_or(unix_time_now()?),
+            purpose_oid,
+        )
     }
 }
 

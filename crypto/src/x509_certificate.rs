@@ -57,17 +57,20 @@ impl Certificate {
     }
 
     pub fn get_extension_value_by_oid(&self, oid: &str) -> Result<Option<Vec<u8>>> {
-        let oid = ObjectIdentifier::new(oid)?;
-
-        let extensions = match self.inner.tbs_certificate.extensions.as_ref() {
-            Some(extensions) => extensions,
-            None => return Ok(None),
-        };
-
-        Ok(extensions
+        let parsed_oid = ObjectIdentifier::new(oid)?;
+        let mut matches = self
+            .inner
+            .tbs_certificate
+            .extensions
+            .as_deref()
+            .unwrap_or(&[])
             .iter()
-            .find(|extension| extension.extn_id == oid)
-            .map(|extension| extension.extn_value.as_bytes().to_vec()))
+            .filter(|extension| extension.extn_id == parsed_oid);
+        let extension = matches.next();
+        if matches.next().is_some() {
+            return Err(format!("Certificate contains duplicate extension {oid}").into());
+        }
+        Ok(extension.map(|extension| extension.extn_value.as_bytes().to_vec()))
     }
 
     pub fn tbs_certificate_der(&self) -> Result<Vec<u8>> {

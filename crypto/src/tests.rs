@@ -450,6 +450,123 @@ mod async_tests {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test;
 
+    // See test_data/generate-eku-fixtures.sh.
+    const EKU_CHAIN: &[u8] = include_bytes!("test_data/eku_chain.pem");
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    fn explicit_eku_requires_membership() {
+        let certs = Crypto::from_pem_chain(EKU_CHAIN).unwrap();
+        let [_, multiple, code_signing_only, absent, any, empty, trailing, _] = certs.as_slice()
+        else {
+            panic!("expected the EKU root and seven test leaves");
+        };
+        let required = "2.100.3";
+        crate::require_extended_key_usage(multiple, required).unwrap();
+        for leaf in [code_signing_only, absent, any, empty] {
+            crate::require_extended_key_usage(leaf, required).unwrap_err();
+        }
+        crate::require_extended_key_usage(trailing, "1.2.3.4").unwrap_err();
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    async fn verifies_chain_with_caller_supplied_leaf_eku_purpose() {
+        let certs = Crypto::from_pem_chain(EKU_CHAIN).unwrap();
+        let [root, critical, noncritical, absent, any, empty, trailing, unknown] = certs.as_slice()
+        else {
+            panic!("expected the EKU root and seven test leaves");
+        };
+        let time = Some(Duration::from_secs(2_524_608_000)); // 2050-01-01 UTC
+        let code_signing = "1.3.6.1.5.5.7.3.3";
+        let client_auth = "1.3.6.1.5.5.7.3.2";
+        let verify_for = |leaf, purpose| {
+            <Crypto as AsyncCryptoBackend>::verify_chain_with_purpose(
+                root,
+                &[],
+                leaf,
+                time,
+                Some(purpose),
+            )
+        };
+
+        for (leaf, criticality, unrestricted) in [
+            (critical, Some(true), false),
+            (noncritical, Some(false), false),
+            (absent, None, true),
+            (any, Some(false), true),
+        ] {
+            assert_eq!(
+                Crypto::extension_criticality(leaf, "2.5.29.37").unwrap(),
+                criticality,
+            );
+            <Crypto as AsyncCryptoBackend>::verify_chain(root, &[], leaf, time)
+                .await
+                .expect("purpose-neutral verification should accept valid EKU");
+            verify_for(leaf, code_signing)
+                .await
+                .expect("leaf EKU should permit code signing, regardless of the issuer's EKU");
+            assert_eq!(
+                verify_for(leaf, client_auth).await.is_ok(),
+                unrestricted,
+                "leaf EKU should restrict client authentication unless absent or wildcard",
+            );
+        }
+        verify_for(critical, "2.100.3")
+            .await
+            .expect("custom OID should match; other purposes need not be recognized");
+        verify_for(critical, "01.03.006.001.005.005.007.003.003")
+            .await
+            .expect("equivalent dotted-decimal spellings must match the same purpose");
+
+        for invalid_purpose in ["", "3.1.2", "1.2.3.", "2.5.29.37.0"] {
+            verify_for(absent, invalid_purpose)
+                .await
+                .expect_err("invalid or wildcard intended purpose must fail even without EKU");
+        }
+        for (leaf, purpose) in [
+            (empty, code_signing),
+            (trailing, "1.2.3.4"),
+            (unknown, code_signing),
+        ] {
+            <Crypto as AsyncCryptoBackend>::verify_chain(root, &[], leaf, time)
+                .await
+                .expect_err(
+                    "malformed EKU or an unknown critical extension must fail without a purpose",
+                );
+            verify_for(leaf, purpose).await.expect_err(
+                "a matching purpose cannot excuse malformed or unknown critical extensions",
+            );
+        }
+        <Crypto as AsyncCryptoBackend>::verify_chain_with_purpose(
+            &cert(SELF_SIGNED_LEAF),
+            &[],
+            critical,
+            time,
+            Some(code_signing),
+        )
+        .await
+        .expect_err("an allowed leaf purpose cannot replace path verification");
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    fn duplicate_eku_is_not_returned_as_a_single_extension() {
+        let certs = Crypto::from_pem_chain(EKU_CHAIN).unwrap();
+        let mut der = Crypto::to_der(certs.last().unwrap()).unwrap();
+        // Make the last fixture's private extension another EKU without
+        // changing DER lengths. This tests extraction, not chain signatures.
+        let unknown_extension = [0x06, 0x03, 0x2a, 0x03, 0x04, 0x01, 0x01, 0xff];
+        let index = der
+            .windows(unknown_extension.len())
+            .position(|window| window == unknown_extension)
+            .expect("fixture should contain the critical private extension");
+        der[index + 2..index + 5].copy_from_slice(&[0x55, 0x1d, 0x25]);
+        Crypto::from_der(&der)
+            .and_then(|leaf| Crypto::get_extension_value_by_oid(&leaf, "2.5.29.37"))
+            .expect_err("a duplicate extension must not be interpreted by taking the first value");
+    }
+
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     async fn digest_matches_sha2_vectors() {

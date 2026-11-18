@@ -237,6 +237,16 @@ impl AsyncCryptoBackend for Crypto {
         leaf: &Self::Certificate,
         unix_time: Option<Duration>,
     ) -> Result<()> {
+        Self::verify_chain_with_purpose(trusted_cert, untrusted_chain, leaf, unix_time, None).await
+    }
+
+    async fn verify_chain_with_purpose(
+        trusted_cert: &Self::Certificate,
+        untrusted_chain: &[&Self::Certificate],
+        leaf: &Self::Certificate,
+        unix_time: Option<Duration>,
+        purpose_oid: Option<&str>,
+    ) -> Result<()> {
         let untrusted_x509 = untrusted_chain
             .iter()
             .map(|cert| &cert.inner)
@@ -254,7 +264,11 @@ impl AsyncCryptoBackend for Crypto {
         let policy_path = std::iter::once(trusted_cert)
             .chain(untrusted_chain.iter().copied())
             .chain((!singleton_path).then_some(leaf));
-        x509_policy::rfc5280_policy::<Crypto, _>(policy_path, unix_time.unwrap_or(unix_time_now()?))
+        x509_policy::rfc5280_policy::<Crypto, _>(
+            policy_path,
+            unix_time.unwrap_or(unix_time_now()?),
+            purpose_oid,
+        )
     }
 }
 

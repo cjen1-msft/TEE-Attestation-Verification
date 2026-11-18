@@ -27,9 +27,9 @@ use crypto::{AsyncCryptoBackend, AsyncKeyBackend};
 use crypto::{CryptoBackend, KeyBackend};
 
 #[cfg(sync_crypto)]
-use didx509::verify_didx509_root;
+use didx509::verify_didx509;
 #[cfg(async_crypto)]
-use didx509::verify_didx509_root_async;
+use didx509::verify_didx509_async;
 use parse::{parse_attestation, parse_x5chain_certs, required_bstr, required_int, required_text};
 
 pub use attestation::snp;
@@ -129,7 +129,8 @@ pub mod synchronous {
     /// Verify an ACI/UVM endorsement independently of the attestation report.
     ///
     /// This verifies the COSE_Sign1 signature, the `x5chain`, and that the
-    /// chain root matches `trusted_didx509`.
+    /// chain root matches `trusted_didx509`. An optional `::eku:<OID>` on the
+    /// trusted DID requires the leaf whose key verifies the signature to list that EKU.
     pub fn verify_uvm_endorsement<'a>(
         uvm_endorsement: &'a [u8],
         trusted_didx509: &str,
@@ -166,7 +167,7 @@ pub mod synchronous {
                     protected_header.map_at_str("iss").map_err(AciError::Cose)?,
                     "iss",
                 )?;
-                verify_didx509_root(trusted_didx509, &issuer, &x5chain)?;
+                verify_didx509(trusted_didx509, &issuer, &x5chain, &leaf)?;
 
                 let signing_time = protected_header
                     .map_at_str("signingtime")
@@ -195,7 +196,7 @@ pub mod synchronous {
                         .map_err(AciError::Cose)?,
                     "CWT iss",
                 )?;
-                verify_didx509_root(trusted_didx509, &issuer, &x5chain)?;
+                verify_didx509(trusted_didx509, &issuer, &x5chain, &leaf)?;
 
                 let signing_time = cwt_claims
                     .map_at_int(cose::CWT_CLAIMS_IAT)
@@ -356,8 +357,9 @@ pub mod asynchronous {
     /// Verify an ACI/UVM endorsement independently of the attestation report.
     ///
     /// This verifies the COSE_Sign1 signature, the `x5chain`, and that the
-    /// chain root matches `trusted_didx509`. This is stage 2 of the ACI flow;
-    /// call [`verify_caci_attestation`] afterwards to bind the UVM
+    /// chain root matches `trusted_didx509`. An optional `::eku:<OID>` on the
+    /// trusted DID requires the leaf whose key verifies the signature to list that EKU.
+    /// This is stage 2 of the ACI flow; call [`verify_caci_attestation`] to bind the UVM
     /// endorsement to the verified attestation report and relying-party policy.
     pub async fn verify_uvm_endorsement<'a>(
         uvm_endorsement: &'a [u8],
@@ -394,7 +396,7 @@ pub mod asynchronous {
                     protected_header.map_at_str("iss").map_err(AciError::Cose)?,
                     "iss",
                 )?;
-                verify_didx509_root_async(trusted_didx509, &issuer, &x5chain).await?;
+                verify_didx509_async(trusted_didx509, &issuer, &x5chain, &leaf).await?;
 
                 let signing_time = protected_header
                     .map_at_str("signingtime")
@@ -424,7 +426,7 @@ pub mod asynchronous {
                         .map_err(AciError::Cose)?,
                     "CWT iss",
                 )?;
-                verify_didx509_root_async(trusted_didx509, &issuer, &x5chain).await?;
+                verify_didx509_async(trusted_didx509, &issuer, &x5chain, &leaf).await?;
 
                 let signing_time = cwt_claims
                     .map_at_int(cose::CWT_CLAIMS_IAT)

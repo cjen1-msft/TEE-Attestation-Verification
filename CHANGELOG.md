@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- CACI UVM endorsement verification now requires an EKU specified in the trusted `did:x509` identifier to be explicitly listed on the signing certificate. Bare root pins are unchanged. ([#4](https://github.com/cjen1-msft/TEE-Attestation-Verification/pull/4))
+
 ## [1.0.7]
 
 [1.0.7]: https://github.com/microsoft/TEE-Attestation-Verification/releases/tag/tav-1.0.7

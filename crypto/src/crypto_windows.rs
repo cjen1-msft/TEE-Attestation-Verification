@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::ffi::{c_void, CString};
+use std::ffi::c_void;
 use std::mem::{align_of, size_of};
 use std::ops::Deref;
 use std::ptr::NonNull;
@@ -135,12 +135,14 @@ impl NativeCertificate {
         {
             return Err("Invalid dotted-decimal OID".into());
         }
-        let oid = CString::new(oid)?;
-        let extensions = self.extensions()?;
-        if extensions.is_empty() {
-            return Ok(None);
+        let mut matches = self.extensions()?.iter().filter(|ext| {
+            !ext.pszObjId.is_null() && unsafe { ext.pszObjId.as_bytes() == oid.as_bytes() }
+        });
+        let extension = matches.next();
+        if matches.next().is_some() {
+            return Err(format!("Certificate contains duplicate extension {oid}").into());
         }
-        Ok(unsafe { Crypto32::CertFindExtension(PCSTR(oid.as_ptr().cast()), extensions).as_ref() })
+        Ok(extension)
     }
 }
 
@@ -517,6 +519,16 @@ impl CryptoBackend for Crypto {
         leaf: &Self::Certificate,
         unix_time: Option<Duration>,
     ) -> Result<()> {
+        Self::verify_chain_with_purpose(trusted_cert, untrusted_chain, leaf, unix_time, None)
+    }
+
+    fn verify_chain_with_purpose(
+        trusted_cert: &Self::Certificate,
+        untrusted_chain: &[&Self::Certificate],
+        leaf: &Self::Certificate,
+        unix_time: Option<Duration>,
+        purpose_oid: Option<&str>,
+    ) -> Result<()> {
         super::x509_policy::verify_certificate_path(
             verify_x509_certificate_signature,
             trusted_cert,
@@ -531,6 +543,7 @@ impl CryptoBackend for Crypto {
         super::x509_policy::rfc5280_policy::<Crypto, _>(
             policy_path,
             unix_time.unwrap_or(SystemTime::now().duration_since(UNIX_EPOCH)?),
+            purpose_oid,
         )
     }
 }

@@ -15,7 +15,13 @@ We establish trust in an ACI container using the following relying-party-policy:
 - The verified `attestation.report_data` is returned for caller-specific key
   release or encryption
 
-The API of this library tries to expose this process to the user.
+`verify_uvm_endorsement` accepts a bare `did:x509:0:sha256:<fingerprint>` root
+pin, or that pin followed by `::eku:<OID>`. The latter requires the signing
+leaf certificate to list that specific OID in its extended key usage. Extra
+EKUs are fine; an absent EKU or `anyExtendedKeyUsage` alone is not a match.
+The signed issuer must identify the same root, but its text does not supply
+the caller's policy. Malformed or unsupported trusted policy suffixes are
+rejected. These checks apply to both legacy and CWT endorsements.
 
 ```rust
 use tee_attestation_verification_caci::{snp, synchronous as tav};

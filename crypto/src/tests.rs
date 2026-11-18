@@ -453,6 +453,22 @@ mod async_tests {
     // See test_data/generate-eku-fixtures.sh.
     const EKU_CHAIN: &[u8] = include_bytes!("test_data/eku_chain.pem");
 
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+    fn explicit_eku_requires_membership() {
+        let certs = Crypto::from_pem_chain(EKU_CHAIN).unwrap();
+        let [_, multiple, code_signing_only, absent, any, empty, trailing, _] = certs.as_slice()
+        else {
+            panic!("expected the EKU root and seven test leaves");
+        };
+        let required = "2.100.3";
+        crate::require_extended_key_usage(multiple, required).unwrap();
+        for leaf in [code_signing_only, absent, any, empty] {
+            crate::require_extended_key_usage(leaf, required).unwrap_err();
+        }
+        crate::require_extended_key_usage(trailing, "1.2.3.4").unwrap_err();
+    }
+
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
     async fn verifies_chain_with_caller_supplied_leaf_eku_purpose() {

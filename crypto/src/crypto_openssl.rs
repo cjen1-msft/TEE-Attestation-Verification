@@ -292,7 +292,8 @@ fn extension_der(extension: &X509ExtensionRef) -> Result<&[u8]> {
     Ok(unsafe { Asn1OctetStringRef::from_ptr(data).as_slice() })
 }
 
-fn check_extended_key_usage(cert: &X509Ref, purpose_oid: Option<&str>) -> Result<()> {
+/// Validate the EKU and, on success, report whether the purpose was explicitly listed.
+pub(crate) fn check_extended_key_usage(cert: &X509Ref, purpose_oid: Option<&str>) -> Result<bool> {
     let intended = purpose_oid
         .map(|oid| -> Result<_> {
             encode_purpose_oid(oid)?;
@@ -309,7 +310,7 @@ fn check_extended_key_usage(cert: &X509Ref, purpose_oid: Option<&str>) -> Result
         })
         .transpose()?;
     let Some(extension) = unique_extension_by_oid(cert, EXTENDED_KEY_USAGE)? else {
-        return Ok(());
+        return Ok(false);
     };
 
     let malformed = || {
@@ -344,10 +345,16 @@ fn check_extended_key_usage(cert: &X509Ref, purpose_oid: Option<&str>) -> Result
     }
 
     if let Some((purpose_oid, intended)) = purpose_oid.zip(intended) {
-        if !purposes.iter().any(|oid| {
-            oid.nid() == Nid::ANYEXTENDEDKEYUSAGE
-                || unsafe { OBJ_cmp(oid.as_ptr(), intended.as_ptr()) == 0 }
-        }) {
+        if purposes
+            .iter()
+            .any(|oid| unsafe { OBJ_cmp(oid.as_ptr(), intended.as_ptr()) == 0 })
+        {
+            return Ok(true);
+        }
+        if !purposes
+            .iter()
+            .any(|oid| oid.nid() == Nid::ANYEXTENDEDKEYUSAGE)
+        {
             return Err(format!(
                 "Certificate {:?} extendedKeyUsage does not permit purpose {purpose_oid}",
                 cert.subject_name()
@@ -355,7 +362,7 @@ fn check_extended_key_usage(cert: &X509Ref, purpose_oid: Option<&str>) -> Result
             .into());
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 /// `Asn1Object`'s display form is the long name for known OIDs, so ask OpenSSL

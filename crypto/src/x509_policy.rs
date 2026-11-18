@@ -239,23 +239,24 @@ where
     Ok(())
 }
 
-/// Validate the entire EKU value, optionally checking an intended leaf purpose.
+/// Validate the EKU and, on success, report whether the purpose was explicitly listed.
 pub(crate) fn check_extended_key_usage<Backend: CertificateBackend>(
     cert: &Backend::Certificate,
     purpose_oid: Option<&str>,
-) -> super::Result<()> {
+) -> super::Result<bool> {
     let intended = purpose_oid.map(encode_purpose_oid).transpose()?;
     let Some(value) = Backend::get_extension_value_by_oid(cert, EXTENDED_KEY_USAGE)? else {
-        return Ok(());
+        return Ok(false);
     };
 
-    let allowed = SliceReader::new(&value)
+    let (listed, any) = SliceReader::new(&value)
         .and_then(|mut reader| {
-            let allowed = reader.sequence(|sequence| {
+            let usage = reader.sequence(|sequence| {
                 if sequence.is_finished() {
                     return Err(Tag::Sequence.value_error()); // SIZE (1..MAX)
                 }
-                let mut allowed = intended.is_none();
+                let mut listed = false;
+                let mut any = false;
                 while !sequence.is_finished() {
                     let id = AnyRef::decode(sequence)?;
                     id.tag().assert_eq(Tag::ObjectIdentifier)?;
@@ -263,11 +264,12 @@ pub(crate) fn check_extended_key_usage<Backend: CertificateBackend>(
                     if !valid_oid_encoding(id) {
                         return Err(Tag::ObjectIdentifier.value_error());
                     }
-                    allowed |= intended.as_deref() == Some(id) || id == ANY_EXTENDED_KEY_USAGE;
+                    listed |= intended.as_deref() == Some(id);
+                    any |= id == ANY_EXTENDED_KEY_USAGE;
                 }
-                Ok(allowed)
+                Ok((listed, any))
             })?;
-            reader.finish(allowed)
+            reader.finish(usage)
         })
         .map_err(|error| {
             format!(
@@ -276,7 +278,7 @@ pub(crate) fn check_extended_key_usage<Backend: CertificateBackend>(
             )
         })?;
 
-    if let Some(purpose) = purpose_oid.filter(|_| !allowed) {
+    if let Some(purpose) = purpose_oid.filter(|_| !listed && !any) {
         return Err(format!(
             "Certificate {} extendedKeyUsage does not permit purpose {purpose}",
             Backend::subject_name(cert)
@@ -284,7 +286,7 @@ pub(crate) fn check_extended_key_usage<Backend: CertificateBackend>(
         .into());
     }
 
-    Ok(())
+    Ok(listed)
 }
 
 fn valid_oid_encoding(id: &[u8]) -> bool {

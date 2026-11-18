@@ -299,5 +299,21 @@ pub type Signature = <Crypto as AsyncCryptoBackend>::Signature;
 /// The certificate type for the active crypto backend.
 pub type Certificate = <Crypto as CertificateBackend>::Certificate;
 
+/// Require the certificate's extendedKeyUsage to explicitly list a specific dotted-decimal OID.
+/// Neither an absent extension nor `anyExtendedKeyUsage` establishes membership.
+/// This checks only the certificate extension, not the chain or signature.
+pub fn require_extended_key_usage(cert: &Certificate, purpose_oid: &str) -> Result<()> {
+    #[cfg(crypto_backend = "crypto_openssl")]
+    let listed = crypto_openssl::check_extended_key_usage(cert, Some(purpose_oid))?;
+    #[cfg(not(crypto_backend = "crypto_openssl"))]
+    let listed = x509_policy::check_extended_key_usage::<Crypto>(cert, Some(purpose_oid))?;
+    if !listed {
+        return Err(
+            format!("Certificate extendedKeyUsage does not explicitly list {purpose_oid}").into(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

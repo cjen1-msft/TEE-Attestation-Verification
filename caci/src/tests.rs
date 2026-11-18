@@ -50,6 +50,47 @@ fn fixture_cases() -> [CaciFixture; 2] {
     [LEGACY_FIXTURE, TRANSPARENT_FIXTURE]
 }
 
+#[cfg_attr(not(target_family = "wasm"), tokio::test)]
+#[cfg_attr(target_family = "wasm", wasm_bindgen_test::wasm_bindgen_test)]
+async fn trusted_eku_is_checked_on_the_uvm_signing_leaf() {
+    let (root_pin, _) = TRUSTED_ACI_DIDX509.split_once("::").unwrap();
+    for fixture in fixture_cases() {
+        let endorsement = reference_info_fixture(fixture);
+        for (suffix, allowed) in [
+            ("", true),
+            // Both signing leaves list .1 and .2; both signed issuers name only .2.
+            ("::eku:1.3.6.1.4.1.311.76.59.1.1", true),
+            ("::eku:1.3.6.1.4.1.311.76.59.1.3", false),
+            ("::subject:CN:ContainerPlat", false),
+            ("::", false),
+            ("::eku:", false),
+            ("::eku:1.2.", false),
+            ("::eku:2.5.29.37.0", false),
+            ("::eku:1.3.6.1.4.1.311.76.59.1.2::eku:1.2.3", false),
+        ] {
+            let trusted = format!("{root_pin}{suffix}");
+            let check = |result: Result<CborValue<'_>, AciError>| {
+                if allowed {
+                    result.unwrap();
+                } else {
+                    assert!(
+                        matches!(result, Err(AciError::DidX509(_))),
+                        "{} should reject trusted policy {trusted}",
+                        fixture.name
+                    );
+                }
+            };
+            #[cfg(sync_crypto)]
+            check(crate::synchronous::verify_uvm_endorsement(
+                &endorsement,
+                &trusted,
+            ));
+            #[cfg(async_crypto)]
+            check(crate::asynchronous::verify_uvm_endorsement(&endorsement, &trusted).await);
+        }
+    }
+}
+
 #[cfg(sync_crypto)]
 mod synchronous {
     use super::*;
